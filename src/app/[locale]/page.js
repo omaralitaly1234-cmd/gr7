@@ -40,14 +40,14 @@ export default function LandingPage() {
 
   const showcases = [
     {
-      img: '/images/Futuristic gym dashboard in gold accents.png',
+      img: '/images/Futuristic gym dashboard in gold accents.webp',
       tag: isAr ? 'لوحة تحكم ذكية' : 'Smart Dashboard',
       title: isAr ? 'تحكم كامل من شاشة واحدة' : 'Full Control From One Screen',
       desc: isAr ? 'لوحة تحكم تفاعلية تعرض كل ما تحتاجه — الأعضاء النشطين، الإيرادات، الحضور، والتنبيهات في الوقت الحقيقي. صُممت لتمنحك رؤية 360° لناديك.' : 'An interactive dashboard showing everything you need — active members, revenue, attendance, and real-time alerts. Designed to give you a 360° view of your gym.',
       list: isAr ? ['إحصائيات فورية ومحدثة','تنبيهات ذكية للاشتراكات المنتهية','تقارير مالية يومية وشهرية','متابعة أداء المدربين'] : ['Real-time updated statistics','Smart alerts for expiring subscriptions','Daily & monthly financial reports','Trainer performance monitoring'],
     },
     {
-      img: '/images/PowerTime gym session with trainer.png',
+      img: '/images/PowerTime gym session with trainer.webp',
       tag: isAr ? 'إدارة المدربين' : 'Trainer Management',
       title: isAr ? 'مدربين أكثر إنتاجية' : 'More Productive Trainers',
       desc: isAr ? 'امنح مدربيك أدوات احترافية لإنشاء برامج تدريبية مخصصة وخطط تغذية بالذكاء الاصطناعي ومتابعة تقدم كل عميل.' : 'Give your trainers professional tools to create custom workout programs, AI nutrition plans, and track every client\'s progress.',
@@ -55,7 +55,7 @@ export default function LandingPage() {
       reverse: true,
     },
     {
-      img: '/images/Luxurious spa booking experience.png',
+      img: '/images/Luxurious spa booking experience.webp',
       tag: isAr ? 'خدمات السبا' : 'Spa Services',
       title: isAr ? 'تجربة سبا فاخرة ومتكاملة' : 'Premium Integrated Spa Experience',
       desc: isAr ? 'نظام حجز متطور لخدمات السبا — ساونا، جاكوزي، حمام مغربي، ومساج. مع تتبع تلقائي لحقوق الأعضاء الماسيين.' : 'Advanced booking system for spa services — sauna, jacuzzi, Moroccan bath & massage. With automatic Diamond member entitlement tracking.',
@@ -126,7 +126,7 @@ export default function LandingPage() {
           </div>
           <div className={s.heroImage}>
             <div className={s.heroImgGlow} />
-            <Image src="/images/High-tech gym dashboard visualization.png" alt="Power Time Dashboard" width={600} height={600} className={s.heroImg} priority />
+            <Image src="/images/High-tech gym dashboard visualization.webp" alt="Power Time Dashboard" width={600} height={600} className={s.heroImg} priority />
           </div>
         </div>
       </section>

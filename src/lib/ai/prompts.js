@@ -24,7 +24,7 @@ function sanitizeMessage(msg) {
  */
 export function nutritionPrompt({ weight, height, age, gender, goal, allergies, dietType, activityLevel, locale }) {
   const isAr = locale === 'ar';
-  return `You are an expert sports nutritionist for a gym called "GR 7".
+  return `You are an expert sports nutritionist for a gym called "Power Time".
 ${isAr ? 'Respond entirely in Arabic.' : 'Respond in English.'}
 
 Create a personalized daily nutrition plan with the following details:
@@ -62,7 +62,7 @@ Include 5 meals. Be specific with portions (grams). Calculate macros accurately 
  */
 export function workoutPrompt({ level, goal, daysPerWeek, duration, injuries, equipment, locale }) {
   const isAr = locale === 'ar';
-  return `You are an expert personal trainer at "GR 7" gym.
+  return `You are an expert personal trainer at "Power Time" gym.
 ${isAr ? 'Respond entirely in Arabic.' : 'Respond in English.'}
 
 Create a personalized workout program with these details:
@@ -111,7 +111,7 @@ export function chatPrompt({ message, role, locale, context }) {
     admin: isAr ? 'مدير الصالة' : 'gym manager',
   };
 
-  return `You are "GR 7 AI", the intelligent assistant for "GR 7" gym management system.
+  return `You are "Power Time AI", the intelligent assistant for "Power Time" gym management system.
 ${isAr ? 'Respond in Arabic. Use a friendly, motivational tone.' : 'Respond in English. Be friendly and motivational.'}
 
 You are talking to a ${roleDesc[role] || roleDesc.client}.

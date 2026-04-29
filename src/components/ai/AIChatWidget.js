@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import { useAI } from '@/lib/hooks/useAI';
@@ -22,8 +22,8 @@ export default function AIChatWidget({ locale, role = 'client' }) {
     {
       role: 'assistant',
       content: isAr
-        ? 'مرحباً! أنا مساعد GR 7 الذكي 🤖\nكيف يمكنني مساعدتك اليوم؟'
-        : "Hi! I'm GR 7 AI Assistant 🤖\nHow can I help you today?",
+        ? 'مرحباً! أنا مساعد Power Time الذكي 🤖\nكيف يمكنني مساعدتك اليوم؟'
+        : "Hi! I'm Power Time AI Assistant 🤖\nHow can I help you today?",
     },
   ]);
   const [input, setInput] = useState('');
@@ -130,7 +130,7 @@ export default function AIChatWidget({ locale, role = 'client' }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem',
               }}>🤖</div>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>GR 7 AI</div>
+                <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>Power Time AI</div>
                 <div style={{ fontSize: '10px', color: 'var(--pt-success)' }}>● {isAr ? 'متصل' : 'Online'}</div>
               </div>
             </div>

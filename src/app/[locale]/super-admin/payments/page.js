@@ -7,7 +7,7 @@ import { PLAN_DEFINITIONS } from '@/lib/firebase/subscription';
 const DEMO_PAYMENTS = [
   { id: 'pay-001', tenantName: 'FitZone - مدينة نصر', planId: 'quarterly', amount: 1200, currency: 'EGP', status: 'confirmed', method: 'instapay', confirmedBy: 'Super Admin', createdAt: { toDate: () => new Date('2026-04-01') } },
   { id: 'pay-002', tenantName: 'Iron Gym - التجمع', planId: 'annual', amount: 3600, currency: 'EGP', status: 'confirmed', method: 'bank_transfer', confirmedBy: 'Super Admin', createdAt: { toDate: () => new Date('2025-11-01') } },
-  { id: 'pay-003', tenantName: 'GR 7 - المعادي', planId: 'monthly', amount: 500, currency: 'EGP', status: 'pending', method: 'vodafone_cash', createdAt: { toDate: () => new Date('2026-04-04') } },
+  { id: 'pay-003', tenantName: 'Power Time - المعادي', planId: 'monthly', amount: 500, currency: 'EGP', status: 'pending', method: 'vodafone_cash', createdAt: { toDate: () => new Date('2026-04-04') } },
   { id: 'pay-004', tenantName: 'Flex Fitness', planId: 'semi_annual', amount: 2100, currency: 'EGP', status: 'pending', method: 'instapay', createdAt: { toDate: () => new Date('2026-04-03') } },
 ];
 

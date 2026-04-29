@@ -16,8 +16,8 @@ export default function AIAssistantPage() {
     {
       role: 'assistant',
       content: isAr
-        ? 'مرحباً! أنا مساعد GR 7 الذكي 🤖\n\nيمكنني مساعدتك في:\n• 🥗 نصائح التغذية والوجبات\n• 🏋️ نصائح التمارين والتقنيات\n• 💡 معلومات اللياقة البدنية\n• 📊 تحليل تقدمك\n\nكيف يمكنني مساعدتك اليوم؟'
-        : "Hello! I'm GR 7 AI Assistant 🤖\n\nI can help with:\n• 🥗 Nutrition tips & meals\n• 🏋️ Exercise tips & techniques\n• 💡 Fitness information\n• 📊 Progress analysis\n\nHow can I help you today?",
+        ? 'مرحباً! أنا مساعد Power Time الذكي 🤖\n\nيمكنني مساعدتك في:\n• 🥗 نصائح التغذية والوجبات\n• 🏋️ نصائح التمارين والتقنيات\n• 💡 معلومات اللياقة البدنية\n• 📊 تحليل تقدمك\n\nكيف يمكنني مساعدتك اليوم؟'
+        : "Hello! I'm Power Time AI Assistant 🤖\n\nI can help with:\n• 🥗 Nutrition tips & meals\n• 🏋️ Exercise tips & techniques\n• 💡 Fitness information\n• 📊 Progress analysis\n\nHow can I help you today?",
     },
   ]);
   const [input, setInput] = useState('');
@@ -91,7 +91,7 @@ export default function AIAssistantPage() {
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem',
             }}>🤖</div>
             <div>
-              <div style={{ fontWeight: 700 }}>GR 7 AI</div>
+              <div style={{ fontWeight: 700 }}>Power Time AI</div>
               <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-success)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--pt-success)', display: 'inline-block' }} />
                 {isAr ? 'متصل وجاهز للمساعدة' : 'Online & ready to help'}

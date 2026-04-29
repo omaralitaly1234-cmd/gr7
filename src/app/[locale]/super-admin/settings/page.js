@@ -28,7 +28,7 @@ export default function SuperAdminSettings() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
             <div className="form-group">
               <label className="form-label">{locale === 'ar' ? 'اسم المنصة' : 'Platform Name'}</label>
-              <input className="form-input" defaultValue="GR 7" />
+              <input className="form-input" defaultValue="Power Time" />
             </div>
             <div className="form-group">
               <label className="form-label">{locale === 'ar' ? 'الوصف' : 'Description'}</label>
@@ -36,7 +36,7 @@ export default function SuperAdminSettings() {
             </div>
             <div className="form-group">
               <label className="form-label">{locale === 'ar' ? 'إيميل الدعم' : 'Support Email'}</label>
-              <input className="form-input" type="email" defaultValue="support@gr7.com" dir="ltr" />
+              <input className="form-input" type="email" defaultValue="support@powertime.com" dir="ltr" />
             </div>
             <div className="form-group">
               <label className="form-label">{locale === 'ar' ? 'رقم الواتساب' : 'WhatsApp Number'}</label>

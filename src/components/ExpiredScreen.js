@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useParams, useRouter } from 'next/navigation';
 import { useTenant } from '@/context/TenantContext';
@@ -71,8 +71,8 @@ export default function ExpiredScreen() {
           lineHeight: 1.8,
         }}>
           {locale === 'ar'
-            ? 'شكراً لتجربتك GR 7! لمتابعة استخدام النظام وإدارة جيمك بكفاءة، اختر خطة مناسبة لك.'
-            : 'Thanks for trying GR 7! To continue managing your gym efficiently, choose a plan that suits you.'}
+            ? 'شكراً لتجربتك Power Time! لمتابعة استخدام النظام وإدارة جيمك بكفاءة، اختر خطة مناسبة لك.'
+            : 'Thanks for trying Power Time! To continue managing your gym efficiently, choose a plan that suits you.'}
         </p>
 
         {/* Plans Grid */}

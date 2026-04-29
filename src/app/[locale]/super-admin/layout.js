@@ -94,7 +94,7 @@ export default function SuperAdminLayout({ children }) {
           {!collapsed && (
             <div>
               <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--pt-gold)', letterSpacing: '0.05em' }}>
-                GR 7
+                Power Time
               </div>
               <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>
                 {locale === 'ar' ? 'إدارة المنصة' : 'Platform Admin'}

@@ -120,7 +120,7 @@ export default function LoginPage({ params }) {
               className="form-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@gr7.com"
+              placeholder="admin@powertime.com"
               required
               dir="ltr"
               autoComplete="email"

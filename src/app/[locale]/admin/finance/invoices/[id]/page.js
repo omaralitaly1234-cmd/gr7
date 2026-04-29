@@ -24,7 +24,7 @@ export default function InvoiceDetailPage() {
     tax: 0,
     total: 2400,
     paymentMethod: locale === 'ar' ? 'كاش' : 'Cash',
-    notes: locale === 'ar' ? 'شكراً لاختيارك GR 7 Gym!' : 'Thank you for choosing GR 7 Gym!',
+    notes: locale === 'ar' ? 'شكراً لاختيارك Power Time Gym!' : 'Thank you for choosing Power Time Gym!',
   };
 
   return (
@@ -41,12 +41,12 @@ export default function InvoiceDetailPage() {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-6)', paddingBottom: 'var(--space-5)', borderBottom: '2px solid var(--glass-border)' }}>
           <div>
-            <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--pt-gold)' }}>⚡ GR 7</div>
+            <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--pt-gold)' }}>⚡ Power Time</div>
             <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--pt-gray-500)' }}>{locale === 'ar' ? 'أكتر من مجرد جيم' : 'More Than Just a Gym'}</div>
             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-600)', marginTop: 'var(--space-2)' }}>
               {locale === 'ar' ? 'المعادي، القاهرة' : 'Maadi, Cairo'}<br />
               📞 01000000000<br />
-              📧 info@gr7.gym
+              📧 info@powertime.gym
             </div>
           </div>
           <div style={{ textAlign: locale === 'ar' ? 'left' : 'right' }}>

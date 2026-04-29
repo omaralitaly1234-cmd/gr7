@@ -29,11 +29,11 @@ export default function AdminFeedbackPage() {
   ];
 
   const recentReviews = [
-    { name: locale === 'ar' ? 'أحمد محمد' : 'Ahmed M.', avatar: 'أ', rating: 5, date: '2026-03-27', text: locale === 'ar' ? 'أفضل جيم روحته في حياتي! المدربين محترفين جداً والأجهزة حديثة. Thank you GR 7 💪' : 'Best gym I\'ve ever been to! Very professional trainers and modern equipment.', category: locale === 'ar' ? 'المدربين' : 'Trainers' },
+    { name: locale === 'ar' ? 'أحمد محمد' : 'Ahmed M.', avatar: 'أ', rating: 5, date: '2026-03-27', text: locale === 'ar' ? 'أفضل جيم روحته في حياتي! المدربين محترفين جداً والأجهزة حديثة. Thank you Power Time 💪' : 'Best gym I\'ve ever been to! Very professional trainers and modern equipment.', category: locale === 'ar' ? 'المدربين' : 'Trainers' },
     { name: locale === 'ar' ? 'سارة علي' : 'Sara A.', avatar: 'س', rating: 4, date: '2026-03-26', text: locale === 'ar' ? 'الجيم نظيف جداً ومنظم. بس ياريت تزودوا أجهزة الكارديو لأن بتبقى مشغولة وقت الذروة.' : 'Very clean and organized. Need more cardio machines during peak hours.', category: locale === 'ar' ? 'المعدات' : 'Equipment' },
     { name: locale === 'ar' ? 'خالد أحمد' : 'Khaled A.', avatar: 'خ', rating: 5, date: '2026-03-25', text: locale === 'ar' ? 'كابتن سارة أحسن مدربة! البرنامج اللي عملته ليا غير حياتي. نزلت 15 كيلو في 3 شهور 🔥' : 'Coach Sara is the best! Her program changed my life. Lost 15kg in 3 months 🔥', category: locale === 'ar' ? 'المدربين' : 'Trainers' },
     { name: locale === 'ar' ? 'نور أحمد' : 'Nour A.', avatar: 'ن', rating: 3, date: '2026-03-24', text: locale === 'ar' ? 'الجيم كويس بس الاشتراك غالي شوية مقارنة بالمنطقة. ياريت عروض للطلاب.' : 'Good gym but subscription is a bit expensive. Student discounts would be nice.', category: locale === 'ar' ? 'الأسعار' : 'Pricing' },
-    { name: locale === 'ar' ? 'مريم حسن' : 'Maryam H.', avatar: 'م', rating: 5, date: '2026-03-23', text: locale === 'ar' ? 'القسم النسائي رائع! خصوصية تامة وأجواء مريحة جداً. شكراً GR 7 ❤️' : 'Women\'s section is amazing! Complete privacy and comfortable atmosphere ❤️', category: locale === 'ar' ? 'المرافق' : 'Facilities' },
+    { name: locale === 'ar' ? 'مريم حسن' : 'Maryam H.', avatar: 'م', rating: 5, date: '2026-03-23', text: locale === 'ar' ? 'القسم النسائي رائع! خصوصية تامة وأجواء مريحة جداً. شكراً Power Time ❤️' : 'Women\'s section is amazing! Complete privacy and comfortable atmosphere ❤️', category: locale === 'ar' ? 'المرافق' : 'Facilities' },
   ];
 
   const nps = { promoters: 62, passives: 28, detractors: 10, score: 52 };

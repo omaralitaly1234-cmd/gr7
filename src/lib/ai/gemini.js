@@ -160,8 +160,8 @@ function getDemoResponse(prompt) {
         ? '🔥 **أفضل تمارين حرق الدهون:**\n\n1. 🏃 **HIIT (تمارين متقطعة)** — أقوى طريقة لحرق الدهون!\n   • 30 ثانية سبرنت + 30 ثانية راحة × 15 جولة\n\n2. 🏋️ **تمارين مقاومة مركبة:**\n   • سكوات، ديد ليفت، بنش بريس\n   • حرق سعرات أعلى وبناء عضلات\n\n3. 🚴 **كارديو ثابت (Zone 2):**\n   • مشي سريع 45 دقيقة\n   • ركوب دراجة 30 دقيقة\n\n📊 **نصائح ذهبية:**\n• العجز الغذائي أهم من نوع التمرين!\n• تمرّن 4-5 أيام/أسبوع\n• نم 7-8 ساعات يومياً\n• اشرب ماء بارد (يزيد حرق السعرات!)'
         : '🔥 **Best Fat Burning Exercises:**\n\n1. 🏃 **HIIT** — Most effective!\n   • 30s sprint + 30s rest × 15 rounds\n\n2. 🏋️ **Compound resistance:**\n   • Squats, Deadlifts, Bench Press\n\n3. 🚴 **Steady-state cardio (Zone 2):**\n   • 45 min brisk walk\n   • 30 min cycling\n\n📊 **Key tips:**\n• Caloric deficit matters most!\n• Train 4-5 days/week\n• Sleep 7-8 hours\n• Drink cold water!',
       default: isArabic
-        ? 'مرحباً! أنا مساعدك الذكي في GR 7 💪\n\nيمكنني مساعدتك في:\n\n🥗 **خطط التغذية** — اقتراح وجبات مناسبة لأهدافك\n🏋️ **برامج التمارين** — تصميم برنامج تدريبي مخصص\n💡 **نصائح لياقة** — إجابة أسئلتك عن التمارين والتغذية\n📊 **متابعة التقدم** — تحليل بياناتك ومساعدتك في التقدم\n\nاسألني أي سؤال وسأساعدك! 🚀'
-        : "Hello! I'm your GR 7 AI assistant 💪\n\nI can help with:\n\n🥗 **Nutrition Plans** — Custom meal plans\n🏋️ **Workout Programs** — Personalized training\n💡 **Fitness Tips** — Exercise & recovery advice\n📊 **Progress Tracking** — Analyze & improve\n\nAsk me anything! 🚀",
+        ? 'مرحباً! أنا مساعدك الذكي في Power Time 💪\n\nيمكنني مساعدتك في:\n\n🥗 **خطط التغذية** — اقتراح وجبات مناسبة لأهدافك\n🏋️ **برامج التمارين** — تصميم برنامج تدريبي مخصص\n💡 **نصائح لياقة** — إجابة أسئلتك عن التمارين والتغذية\n📊 **متابعة التقدم** — تحليل بياناتك ومساعدتك في التقدم\n\nاسألني أي سؤال وسأساعدك! 🚀'
+        : "Hello! I'm your Power Time AI assistant 💪\n\nI can help with:\n\n🥗 **Nutrition Plans** — Custom meal plans\n🏋️ **Workout Programs** — Personalized training\n💡 **Fitness Tips** — Exercise & recovery advice\n📊 **Progress Tracking** — Analyze & improve\n\nAsk me anything! 🚀",
     };
 
     // Determine which response to give
@@ -189,7 +189,7 @@ function getDemoResponse(prompt) {
   if (lower.includes('nutrition') || lower.includes('تغذية') || lower.includes('غذائ')) {
     return {
       text: JSON.stringify({
-        planName: isArabic ? 'خطة غذائية متوازنة — GR 7 AI' : 'Balanced Nutrition Plan — GR 7 AI',
+        planName: isArabic ? 'خطة غذائية متوازنة — Power Time AI' : 'Balanced Nutrition Plan — Power Time AI',
         dailyCalories: 2200,
         macros: { protein: 165, carbs: 250, fat: 70 },
         meals: [
@@ -209,7 +209,7 @@ function getDemoResponse(prompt) {
   if (lower.includes('workout') || lower.includes('تمرين') || lower.includes('تدريب')) {
     return {
       text: JSON.stringify({
-        programName: isArabic ? 'برنامج بناء العضلات — GR 7 AI' : 'Muscle Building Program — GR 7 AI',
+        programName: isArabic ? 'برنامج بناء العضلات — Power Time AI' : 'Muscle Building Program — Power Time AI',
         duration: isArabic ? '4 أسابيع' : '4 weeks',
         daysPerWeek: 5,
         level: isArabic ? 'متوسط' : 'Intermediate',
@@ -259,8 +259,8 @@ function getDemoResponse(prompt) {
   // Fallback general response
   return {
     text: isArabic
-      ? 'مرحباً! أنا مساعدك الذكي في GR 7 💪\n\nيمكنني مساعدتك في:\n🥗 خطط التغذية\n🏋️ برامج التمارين\n💡 نصائح لياقة\n📊 متابعة التقدم\n\nاسألني أي سؤال! 🚀'
-      : "Hi! I'm your GR 7 AI 💪\n\nI help with:\n🥗 Nutrition Plans\n🏋️ Workout Programs\n💡 Fitness Tips\n📊 Progress Tracking\n\nAsk me anything! 🚀",
+      ? 'مرحباً! أنا مساعدك الذكي في Power Time 💪\n\nيمكنني مساعدتك في:\n🥗 خطط التغذية\n🏋️ برامج التمارين\n💡 نصائح لياقة\n📊 متابعة التقدم\n\nاسألني أي سؤال! 🚀'
+      : "Hi! I'm your Power Time AI 💪\n\nI help with:\n🥗 Nutrition Plans\n🏋️ Workout Programs\n💡 Fitness Tips\n📊 Progress Tracking\n\nAsk me anything! 🚀",
     inputTokens: 100, outputTokens: 200, costUSD: 0.00007, model: 'demo',
   };
 }

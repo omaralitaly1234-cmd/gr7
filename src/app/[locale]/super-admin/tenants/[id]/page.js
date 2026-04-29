@@ -11,9 +11,9 @@ export default function TenantDetailPage({ params: routeParams }) {
   // Demo tenant data
   const [tenant] = useState({
     id: routeParams?.id || 'gym-001',
-    name: 'GR 7 - المعادي',
-    nameAr: 'GR 7 - المعادي',
-    nameEn: 'GR 7 - Maadi',
+    name: 'Power Time - المعادي',
+    nameAr: 'Power Time - المعادي',
+    nameEn: 'Power Time - Maadi',
     ownerEmail: 'maadi@gym.com',
     phone: '01012345678',
     status: 'trial',

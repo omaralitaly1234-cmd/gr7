@@ -29,7 +29,7 @@ export default function ClientSocialFeedPage() {
     {
       id: 3, user: { name: locale === 'ar' ? 'محمد علي سعيد' : 'Mohamed Ali', avatar: 'م', level: 10, badge: '⭐' },
       type: 'transformation', time: locale === 'ar' ? 'منذ 3 ساعات' : '3 hrs ago',
-      content: locale === 'ar' ? 'شهرين في GR 7 والنتيجة واضحة! من 95 كيلو لـ 82 كيلو 💪 شكراً كابتن أحمد!' : '2 months at GR 7 and the results speak! From 95kg to 82kg 💪 Thanks Coach Ahmed!',
+      content: locale === 'ar' ? 'شهرين في Power Time والنتيجة واضحة! من 95 كيلو لـ 82 كيلو 💪 شكراً كابتن أحمد!' : '2 months at Power Time and the results speak! From 95kg to 82kg 💪 Thanks Coach Ahmed!',
       transformation: { before: 95, after: 82, unit: 'kg', months: 2 },
       likes: 56, comments: 18, liked: true,
     },
@@ -41,7 +41,7 @@ export default function ClientSocialFeedPage() {
       likes: 18, comments: 5, liked: false,
     },
     {
-      id: 5, user: { name: 'GR 7 GYM', avatar: '⚡', level: 99, badge: '✅', isOfficial: true },
+      id: 5, user: { name: 'Power Time GYM', avatar: '⚡', level: 99, badge: '✅', isOfficial: true },
       type: 'announcement', time: locale === 'ar' ? 'منذ 6 ساعات' : '6 hrs ago',
       content: locale === 'ar' ? '🏆 تحدي رمضان يبدأ 1 أبريل! سجّل الآن واكسب 1000 XP + ميدالية ذهبية! 💪🔥' : '🏆 Ramadan Challenge starts April 1st! Register now and earn 1000 XP + Gold Medal! 💪🔥',
       likes: 89, comments: 34, liked: true,
@@ -68,7 +68,7 @@ export default function ClientSocialFeedPage() {
   return (
     <div className="animate-fadeIn">
       <div className="page-header">
-        <h1><span>📱</span> {locale === 'ar' ? 'مجتمع GR 7' : 'GR 7 Community'}</h1>
+        <h1><span>📱</span> {locale === 'ar' ? 'مجتمع Power Time' : 'Power Time Community'}</h1>
       </div>
 
       {/* New Post */}

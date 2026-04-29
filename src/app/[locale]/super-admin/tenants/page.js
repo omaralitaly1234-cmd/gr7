@@ -7,7 +7,7 @@ import { PLAN_DEFINITIONS } from '@/lib/firebase/subscription';
 
 const DEMO_TENANTS = [
   {
-    id: 'gym-001', name: 'GR 7 - المعادي', nameAr: 'GR 7 - المعادي', status: 'trial',
+    id: 'gym-001', name: 'Power Time - المعادي', nameAr: 'Power Time - المعادي', status: 'trial',
     ownerEmail: 'maadi@gym.com', phone: '01012345678', createdAt: { toDate: () => new Date('2026-03-15') },
     subscription: { plan: 'trial', trialEndDate: { toDate: () => new Date('2026-06-15') } },
     limits: { maxMembers: 100, maxTrainers: 3 },

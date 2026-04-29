@@ -90,7 +90,7 @@ export default function RegisterPage() {
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 'var(--space-6)' }}>
           <div style={{ fontSize: '3rem', marginBottom: 'var(--space-2)' }}>⚡</div>
-          <h1 style={{ fontSize: 'var(--font-size-2xl)', color: 'var(--pt-gold)' }}>GR 7</h1>
+          <h1 style={{ fontSize: 'var(--font-size-2xl)', color: 'var(--pt-gold)' }}>Power Time</h1>
           <p style={{ color: 'var(--pt-gray-400)' }}>{locale === 'ar' ? 'انضم إلينا الآن' : 'Join Us Now'}</p>
         </div>
 

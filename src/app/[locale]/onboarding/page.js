@@ -139,7 +139,7 @@ export default function OnboardingPage() {
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
         }}>
-          GR 7
+          Power Time
         </h1>
         <p style={{ fontSize: 'var(--font-size-lg)', color: 'var(--pt-gray-400)', maxWidth: 600, margin: '0 auto', lineHeight: 1.8 }}>
           {locale === 'ar'

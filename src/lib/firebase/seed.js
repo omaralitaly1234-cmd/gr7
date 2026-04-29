@@ -37,8 +37,8 @@ export async function seedDatabase(superAdminUid) {
 
   // 3. Platform settings
   const settingsResult = await setDocument('platformSettings', 'general', {
-    platformName: { ar: 'GR 7', en: 'GR 7' },
-    supportEmail: 'gr7.fit@gmail.com',
+    platformName: { ar: 'باور تايم', en: 'Power Time' },
+    supportEmail: 'support@powertime.com',
     version: '2.1.0',
     maintenanceMode: false,
   });

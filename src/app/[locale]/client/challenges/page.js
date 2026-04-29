@@ -22,7 +22,7 @@ export default function ClientChallengesPage() {
     {
       id: 2, icon: '💪', name: locale === 'ar' ? 'تحدي البنش بريس' : 'Bench Press Challenge',
       desc: locale === 'ar' ? 'أوصل لـ 100 كيلو بنش بريس' : 'Reach 100kg Bench Press',
-      reward: locale === 'ar' ? '300 XP + تيشيرت GR 7' : '300 XP + GR 7 T-Shirt',
+      reward: locale === 'ar' ? '300 XP + تيشيرت Power Time' : '300 XP + Power Time T-Shirt',
       progress: 90, target: 100, daysLeft: 20,
       participants: 28, myRank: 3,
       startDate: '2026-03-10', endDate: '2026-04-10',

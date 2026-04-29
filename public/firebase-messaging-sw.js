@@ -17,7 +17,7 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   const { title, body, icon } = payload.notification || {};
-  self.registration.showNotification(title || 'GR 7', {
+  self.registration.showNotification(title || 'Power Time', {
     body: body || '',
     icon: icon || '/favicon.ico',
     badge: '/favicon.ico',

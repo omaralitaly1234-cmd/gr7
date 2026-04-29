@@ -97,16 +97,112 @@
 .footerName { font-size: 1rem; font-weight: 800; color: var(--pt-gold); }
 .footerCopy { font-size: 0.8rem; color: var(--pt-gray-600); }
 
-/* Responsive */
+/* ===== Responsive — Tablet ===== */
+@media (max-width: 1024px) {
+  .heroContent { gap: 2.5rem; }
+  .showcaseRow, .showcaseRowReverse { gap: 2.5rem; }
+  .plansGrid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+  .planPrice { font-size: 2rem; }
+  .sectionTitle { font-size: 2.2rem; }
+  .ctaTitle { font-size: 2.2rem; }
+}
+
+/* ===== Responsive — Mobile ===== */
 @media (max-width: 768px) {
-  .heroContent { grid-template-columns: 1fr; text-align: center; }
-  .heroDesc { margin-inline: auto; }
-  .heroBtns { justify-content: center; }
-  .heroStats { grid-template-columns: repeat(2, 1fr); }
-  .heroImage { order: -1; max-width: 400px; margin: 0 auto; }
-  .showcaseRow, .showcaseRowReverse { grid-template-columns: 1fr; }
+  /* Navbar */
+  .nav { padding: 0 1rem; height: 60px; }
+  .navLogoText { font-size: 1rem; }
+  .navLinks { gap: 0; }
+  .navLink { padding: 6px 8px; font-size: 0.75rem; }
+  .navCta { padding: 8px 16px; font-size: 0.8rem; border-radius: 10px; }
+
+  /* Hero */
+  .hero { padding: 80px 1.25rem 40px; min-height: auto; }
+  .heroContent { grid-template-columns: 1fr; text-align: center; gap: 2rem; }
+  .heroImage { order: -1; max-width: 320px; margin: 0 auto; }
+  .heroImg { border-radius: 16px; }
+  .heroImgGlow { inset: -10px; }
+  .heroBadge { font-size: 0.72rem; padding: 6px 14px; margin-bottom: 1rem; }
+  .heroTitle { font-size: 2.2rem; margin-bottom: 1rem; }
+  .heroDesc { font-size: 0.95rem; margin-inline: auto; margin-bottom: 1.5rem; line-height: 1.7; }
+  .heroBtns { justify-content: center; gap: 0.75rem; margin-bottom: 2rem; }
+  .heroBtn { padding: 14px 28px; font-size: 0.95rem; border-radius: 12px; width: 100%; justify-content: center; }
+  .heroBtnOutline { padding: 14px 28px; font-size: 0.95rem; border-radius: 12px; width: 100%; justify-content: center; }
+  .heroStats { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
+  .heroStat { padding: 10px 8px; border-radius: 10px; }
+  .heroStatVal { font-size: 1.3rem; }
+  .heroStatLabel { font-size: 0.65rem; }
+
+  /* Sections */
+  .section { padding: 4rem 1.25rem; }
+  .sectionTag { font-size: 0.7rem; letter-spacing: 3px; }
+  .sectionTitle { font-size: 1.8rem; }
+  .sectionDesc { font-size: 0.9rem; margin-bottom: 2.5rem; }
+
+  /* Features */
+  .featuresGrid { grid-template-columns: 1fr; gap: 1rem; }
+  .featureCard { padding: 1.25rem; border-radius: 16px; gap: 1rem; }
+  .featureIcon { width: 46px; height: 46px; border-radius: 12px; font-size: 1.3rem; }
+  .featureTitle { font-size: 0.95rem; }
+  .featureDesc { font-size: 0.82rem; }
+
+  /* Showcase */
+  .showcase { padding: 4rem 1.25rem; }
+  .showcaseRow, .showcaseRowReverse { grid-template-columns: 1fr; gap: 1.5rem; margin-bottom: 3.5rem; }
   .showcaseRowReverse > * { order: unset !important; }
-  .featuresGrid { grid-template-columns: 1fr; }
-  .nav { padding: 0 1rem; }
-  .navLinks { gap: 0.25rem; }
+  .showcaseImg { border-radius: 16px; }
+  .showcaseTitle { font-size: 1.5rem; }
+  .showcaseDesc { font-size: 0.88rem; line-height: 1.7; }
+  .showcaseListItem { font-size: 0.85rem; }
+
+  /* Plans */
+  .plans { padding: 4rem 1.25rem; }
+  .plansGrid { grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .planCard { padding: 1.25rem 1rem; border-radius: 16px; }
+  .planPopular { transform: none; }
+  .planPopular:hover { transform: translateY(-4px); }
+  .planPrice { font-size: 1.8rem; }
+  .planName { font-size: 0.8rem; }
+  .planFeature { font-size: 0.75rem; }
+  .planBtn { padding: 10px; font-size: 0.82rem; border-radius: 10px; }
+  .planBadge { font-size: 0.6rem; padding: 3px 10px; top: -10px; }
+
+  /* CTA */
+  .cta { padding: 4rem 1.25rem; }
+  .ctaTitle { font-size: 1.8rem; }
+  .ctaDesc { font-size: 0.95rem; margin-bottom: 2rem; }
+
+  /* Footer */
+  .footer { padding: 2rem 1.25rem; }
+}
+
+/* ===== Responsive — Small Mobile ===== */
+@media (max-width: 480px) {
+  .nav { padding: 0 0.75rem; }
+  .navLink { display: none; }
+  .navCta { padding: 8px 14px; font-size: 0.78rem; }
+
+  .hero { padding: 70px 1rem 30px; }
+  .heroImage { max-width: 260px; }
+  .heroTitle { font-size: 1.8rem; }
+  .heroBadge { font-size: 0.65rem; padding: 5px 12px; }
+  .heroDesc { font-size: 0.88rem; }
+  .heroBtn { padding: 12px 20px; font-size: 0.9rem; }
+  .heroBtnOutline { padding: 12px 20px; font-size: 0.9rem; }
+  .heroStats { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+  .heroStatVal { font-size: 1.1rem; }
+
+  .section { padding: 3rem 1rem; }
+  .sectionTitle { font-size: 1.5rem; }
+  .sectionDesc { font-size: 0.85rem; }
+
+  .showcase { padding: 3rem 1rem; }
+  .showcaseTitle { font-size: 1.3rem; }
+
+  .plans { padding: 3rem 1rem; }
+  .plansGrid { grid-template-columns: 1fr; }
+  .planPrice { font-size: 2rem; }
+
+  .cta { padding: 3rem 1rem; }
+  .ctaTitle { font-size: 1.5rem; }
 }

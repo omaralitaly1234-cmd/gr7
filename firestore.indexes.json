@@ -25,13 +25,6 @@
       ]
     },
     {
-      "collectionGroup": "attendance",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "checkIn", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "finances",
       "queryScope": "COLLECTION",
       "fields": [

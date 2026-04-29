@@ -1,0 +1,88 @@
+/* Filters Bar */
+.filtersBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+  flex-wrap: wrap;
+}
+
+.searchWrapper {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--pt-dark);
+  border: 1px solid var(--pt-gray-800);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  transition: border-color var(--transition-fast);
+}
+
+.searchWrapper:focus-within {
+  border-color: var(--pt-gold-dim);
+}
+
+.searchIcon {
+  font-size: var(--font-size-md);
+  opacity: 0.5;
+}
+
+.searchInput {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--pt-white);
+  font-size: var(--font-size-sm);
+  outline: none;
+  padding: var(--space-2) 0;
+}
+
+.searchInput::placeholder {
+  color: var(--pt-gray-600);
+}
+
+.filterGroup {
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* Member Avatar */
+.memberAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: var(--pt-gold-glow);
+  color: var(--pt-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
+}
+
+.memberCode {
+  font-family: var(--font-en);
+  font-size: var(--font-size-xs);
+  background: var(--pt-darker);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--pt-gray-300);
+}
+
+@media (max-width: 768px) {
+  .filtersBar {
+    flex-direction: column;
+  }
+  
+  .searchWrapper {
+    min-width: 100%;
+  }
+  
+  .filterGroup {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}

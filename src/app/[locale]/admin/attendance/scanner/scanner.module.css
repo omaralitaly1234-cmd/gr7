@@ -1,0 +1,226 @@
+.scannerLayout {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: var(--space-6);
+}
+
+/* Scanner Card */
+.scannerCard {
+  background: var(--pt-dark);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+}
+
+/* Camera Area */
+.cameraArea {
+  aspect-ratio: 4/3;
+  background: var(--pt-black);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-6);
+  position: relative;
+  overflow: hidden;
+}
+
+.cameraFrame {
+  width: 200px;
+  height: 200px;
+  position: relative;
+}
+
+.scanLine {
+  position: absolute;
+  width: 100%;
+  height: 2px;
+  background: var(--pt-gold);
+  box-shadow: 0 0 10px var(--pt-gold), 0 0 30px rgba(245, 197, 24, 0.3);
+  animation: scanMove 2s ease-in-out infinite;
+}
+
+@keyframes scanMove {
+  0%, 100% { top: 0; }
+  50% { top: calc(100% - 2px); }
+}
+
+.cornerTL, .cornerTR, .cornerBL, .cornerBR {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-color: var(--pt-gold);
+  border-style: solid;
+}
+
+.cornerTL { top: 0; left: 0; border-width: 3px 0 0 3px; }
+.cornerTR { top: 0; right: 0; border-width: 3px 3px 0 0; }
+.cornerBL { bottom: 0; left: 0; border-width: 0 0 3px 3px; }
+.cornerBR { bottom: 0; right: 0; border-width: 0 3px 3px 0; }
+
+.cameraText {
+  color: var(--pt-gray-400);
+  margin-top: var(--space-6);
+  font-size: var(--font-size-md);
+}
+
+.cameraSubtext {
+  color: var(--pt-gray-600);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-1);
+}
+
+/* Manual Search */
+.manualSearch {
+  border-top: 1px solid var(--glass-border);
+  padding-top: var(--space-6);
+}
+
+.searchRow {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.demoHint {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--pt-gray-600);
+  font-style: italic;
+}
+
+/* Result Card */
+.resultCard {
+  border: 2px solid;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  animation: scaleIn 0.3s ease;
+}
+
+.resultHeader {
+  padding: var(--space-5);
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+.resultIcon {
+  font-size: 2rem;
+}
+
+.resultText {
+  font-size: var(--font-size-xl);
+  font-weight: 800;
+  color: white;
+}
+
+/* Member Info */
+.memberInfo {
+  text-align: center;
+  padding: var(--space-6);
+}
+
+.memberAvatar {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-full);
+  background: var(--pt-gold-glow);
+  color: var(--pt-gold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 800;
+  margin-bottom: var(--space-3);
+}
+
+.memberName {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  margin-bottom: var(--space-1);
+}
+
+.memberCode {
+  color: var(--pt-gray-500);
+  font-family: var(--font-en);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-5);
+}
+
+.infoGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+  text-align: start;
+}
+
+.infoItem {
+  background: var(--pt-darker);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+}
+
+.infoLabel {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--pt-gray-500);
+  margin-bottom: var(--space-1);
+}
+
+.infoValue {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+
+/* Checkin List */
+.checkinList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.checkinItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--pt-darker);
+}
+
+.checkinAvatar {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: var(--pt-gold-glow);
+  color: var(--pt-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: var(--font-size-xs);
+}
+
+.checkinInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.checkinName {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.checkinTime {
+  font-size: var(--font-size-xs);
+  color: var(--pt-gray-500);
+}
+
+@media (max-width: 1024px) {
+  .scannerLayout {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,106 @@
+/* Quick Actions */
+.quickActions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+}
+
+.quickAction {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--pt-darker);
+  border: 1px solid var(--glass-border);
+  transition: all var(--transition-fast);
+}
+
+.quickAction:hover {
+  border-color: var(--pt-gold-dim);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.quickActionIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.quickActionLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--pt-gray-300);
+  text-align: center;
+}
+
+/* Expiring List */
+.expiringList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.expiringItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--pt-darker);
+  transition: background var(--transition-fast);
+}
+
+.expiringItem:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.expiringAvatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  background: var(--pt-gold-glow);
+  color: var(--pt-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: var(--font-size-md);
+  flex-shrink: 0;
+}
+
+.expiringInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.expiringName {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--pt-white);
+}
+
+.expiringPlan {
+  font-size: var(--font-size-xs);
+  color: var(--pt-gray-500);
+}
+
+.expiringDays {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .quickActions {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

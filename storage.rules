@@ -1,0 +1,81 @@
+// ==========================================
+// Firebase Storage Security Rules - GR7 SaaS
+// ==========================================
+// Deploy with: firebase deploy --only storage
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ==================== Helper Functions ====================
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user belongs to tenant (via custom claims)
+    function belongsToTenant(tenantId) {
+      return isAuthenticated() &&
+        request.auth.token.tenantId == tenantId;
+    }
+
+    // Check if user is super admin (via custom claims)
+    function isSuperAdmin() {
+      return isAuthenticated() &&
+        request.auth.token.superAdmin == true;
+    }
+
+    // Max file sizes
+    function isImageAndUnderLimit() {
+      return request.resource.contentType.matches('image/.*') &&
+             request.resource.size < 10 * 1024 * 1024; // 10MB
+    }
+
+    function isPdfAndUnderLimit() {
+      return request.resource.contentType == 'application/pdf' &&
+             request.resource.size < 20 * 1024 * 1024; // 20MB
+    }
+
+    function isAllowedFile() {
+      return isImageAndUnderLimit() || isPdfAndUnderLimit();
+    }
+
+    // ==================== Platform Assets ====================
+    
+    match /platform/{allPaths=**} {
+      // Anyone can read platform assets (logos, etc.)
+      allow read: if true;
+      // Only admins can write (handled via Admin SDK, no client upload)
+      allow write: if false;
+    }
+
+    // ==================== Tenant Storage ====================
+    
+    match /tenants/{tenantId}/{allPaths=**} {
+      // Read: user belongs to this tenant OR is super admin
+      allow read: if isSuperAdmin() || belongsToTenant(tenantId);
+      
+      // Write: user belongs to this tenant AND valid file type + size limit
+      // OR super admin
+      allow write: if (belongsToTenant(tenantId) && isAllowedFile()) ||
+                      isSuperAdmin();
+    }
+
+    // ==================== Payment Receipts ====================
+    
+    match /payments/{paymentId}/{allPaths=**} {
+      // Read: super admin or authenticated (receipts are per-payment, validated server-side)
+      allow read: if isSuperAdmin() || isAuthenticated();
+      
+      // Write: authenticated + valid file (receipt upload during payment submission)
+      allow write: if isAuthenticated() && isAllowedFile();
+    }
+
+    // ==================== Default: Deny All ====================
+    
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,41 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Firebase
+serviceAccountKey.json
+*serviceAccountKey*.json
+firebase-debug.log
+.firebase/
+new fire base.txt
+
+# Large/unnecessary files
+*.jpeg
+*.png
+implementation_plan.md
+advanced_specifications.md
+

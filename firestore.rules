@@ -1,0 +1,278 @@
+// ==========================================
+// Firestore Security Rules - GR7 SaaS
+// ==========================================
+// Deploy with: firebase deploy --only firestore:rules
+// Or copy to Firebase Console > Firestore > Rules
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==================== Helper Functions ====================
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user is a Super Admin
+    function isSuperAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.superAdmin == true;
+    }
+    
+    // Check if user belongs to specific tenant
+    function belongsToTenant(tenantId) {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == tenantId;
+    }
+    
+    // Check if tenant's subscription is active (active or trial)
+    function isTenantActive(tenantId) {
+      let tenant = get(/databases/$(database)/documents/tenants/$(tenantId)).data;
+      return tenant.status in ['active', 'trial'];
+    }
+    
+    // Check if user is tenant owner
+    function isTenantOwner(tenantId) {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantRole == 'owner' &&
+        belongsToTenant(tenantId);
+    }
+    
+    // Check if user is tenant admin (owner or admin role)
+    function isTenantAdmin(tenantId) {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isAuthenticated() &&
+        userData.tenantId == tenantId &&
+        userData.tenantRole in ['owner', 'admin'];
+    }
+
+    // Check if user is tenant trainer
+    function isTenantTrainer(tenantId) {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isAuthenticated() &&
+        userData.tenantId == tenantId &&
+        userData.tenantRole in ['owner', 'admin', 'trainer'];
+    }
+
+    // Protected fields that users CANNOT modify on their own document
+    function isNotEscalatingPrivileges() {
+      let diff = request.resource.data.diff(resource.data);
+      return !diff.affectedKeys().hasAny([
+        'superAdmin', 'tenantRole', 'role', 'tenantId', 'isActive'
+      ]);
+    }
+
+    // Ensure user is creating a document with correct ownership
+    // Defense-in-depth: blocks privilege escalation even if client code is tampered
+    function isValidNewUser() {
+      return request.resource.data.superAdmin == false &&
+             request.resource.data.role != 'superadmin' &&
+             request.resource.data.role != 'admin' &&
+             request.resource.data.tenantRole != 'owner' &&
+             request.resource.data.tenantRole != 'admin';
+    }
+
+    // ==================== Users Collection ====================
+    
+    match /users/{userId} {
+      // Read: own data, same tenant admin, or Super Admin
+      allow read: if request.auth.uid == userId || isSuperAdmin() ||
+        (isAuthenticated() && resource.data.tenantId != null &&
+         isTenantAdmin(resource.data.tenantId));
+      
+      // Create: only during registration (limited fields)
+      allow create: if request.auth.uid == userId && isValidNewUser();
+      
+      // Update own data: CANNOT escalate privileges
+      allow update: if (request.auth.uid == userId && isNotEscalatingPrivileges()) ||
+                       isSuperAdmin();
+      
+      // Delete: Super Admin only
+      allow delete: if isSuperAdmin();
+    }
+
+    // ==================== Tenants Collection ====================
+    
+    match /tenants/{tenantId} {
+      // Read: Super Admin or belongs to tenant
+      allow read: if isSuperAdmin() || belongsToTenant(tenantId);
+      
+      // Create: Authenticated user who does NOT already belong to a tenant
+      allow create: if isAuthenticated() &&
+        (!exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == null);
+      
+      // Update: Super Admin or tenant owner only
+      allow update: if isSuperAdmin() || isTenantOwner(tenantId);
+      
+      // Delete: Super Admin only
+      allow delete: if isSuperAdmin();
+      
+      // ===== Tenant Sub-Collections =====
+      
+      // Members sub-collection
+      match /members/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow create, update: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+        allow delete: if isSuperAdmin() || 
+          (isTenantOwner(tenantId) && isTenantActive(tenantId));
+      }
+
+      // Attendance sub-collection
+      match /attendance/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow create: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow update, delete: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+      }
+
+      // Finance-related sub-collections (payments, invoices, expenses)
+      match /payments/{docId} {
+        allow read: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+      }
+      match /invoices/{docId} {
+        allow read: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+      }
+      match /expenses/{docId} {
+        allow read: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+      }
+
+      // Trainer-managed sub-collections (diet plans, programs, body metrics)
+      match /dietPlans/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() || 
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+      }
+      match /trainingPrograms/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() || 
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+      }
+      match /bodyMetrics/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() || 
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+      }
+
+      // Settings — only admin/owner can modify
+      match /settings/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+      }
+
+      // Notifications — any tenant member can read, admin can write
+      match /notifications/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow create: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+        allow update: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow delete: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+      }
+
+      // AI Usage tracking
+      match /aiUsage/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        
+        match /{sub}/{subDoc} {
+          allow read, write: if isSuperAdmin() || 
+            (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        }
+      }
+
+      // Generic catch-all for other tenant sub-collections
+      // (classes, offers, ratings, schedules, trainers, employees, etc.)
+      match /{subcollection}/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow create, update: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+        allow delete: if isSuperAdmin() || 
+          (isTenantOwner(tenantId) && isTenantActive(tenantId));
+      }
+
+      // Deep nested subcollections (e.g. members/{id}/workouts/{id})
+      match /{sub1}/{doc1}/{sub2}/{doc2} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+      }
+    }
+
+    // ==================== Plans Collection ====================
+    
+    match /plans/{planId} {
+      // Anyone authenticated can read plans
+      allow read: if isAuthenticated();
+      
+      // Only Super Admin can modify plans
+      allow write: if isSuperAdmin();
+    }
+
+    // ==================== Platform Payments ====================
+    
+    match /payments/{paymentId} {
+      // Read: Super Admin OR the tenant that owns the payment
+      allow read: if isSuperAdmin() || 
+        (isAuthenticated() && 
+         resource.data.tenantId != null &&
+         belongsToTenant(resource.data.tenantId));
+      
+      // Create: Authenticated user, must include their own tenantId
+      allow create: if isAuthenticated() &&
+        request.resource.data.tenantId != null &&
+        belongsToTenant(request.resource.data.tenantId) &&
+        request.resource.data.amount is number &&
+        request.resource.data.amount > 0;
+      
+      // Update/Delete: Super Admin only (confirm/reject payments)
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // ==================== Platform Settings ====================
+    
+    match /platformSettings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    // ==================== Audit Logs (Immutable) ====================
+    
+    match /auditLogs/{logId} {
+      // Only Super Admin can read audit logs
+      allow read: if isSuperAdmin();
+      
+      // Any authenticated user can create (logging actions)
+      allow create: if isAuthenticated();
+      
+      // NEVER allow update or delete — audit logs are immutable
+      allow update, delete: if false;
+    }
+  }
+}

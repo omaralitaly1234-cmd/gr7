@@ -1,0 +1,47 @@
+# ============================================
+# Firebase App Hosting Configuration
+# Power Time Management System
+# Project: gr7-system (Blaze Plan)
+# ============================================
+
+runConfig:
+  minInstances: 0          # Scale to zero when idle (cost optimization)
+  maxInstances: 10         # Maximum instances for scaling
+  concurrency: 80          # Requests per instance
+  cpu: 1                   # vCPU per instance
+  memoryMiB: 512           # Memory per instance
+
+env:
+  # =============================================
+  # Firebase Client SDK (Public — safe for browser)
+  # =============================================
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: "AIzaSyBtla9LqPG4V_m64zlY0R6psZD90g2FsvA"
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: "gr7-system.firebaseapp.com"
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: "gr7-system"
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: "gr7-system.firebasestorage.app"
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "922740877412"
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: "1:922740877412:web:e39c5d17d5022c7e839771"
+  - variable: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+    value: "G-KMZMFF18E3"
+  - variable: NEXT_PUBLIC_FIREBASE_VAPID_KEY
+    value: "BGvrwASXZldbmctaEahPf3710g7E_T3kxLvep0GnR-tSj3i4lN0d8LYaqkHl3lWDya9t2YCYdeQrl_KdGnKuuhY"
+
+  # =============================================
+  # Secrets (Server-side — Google Cloud Secret Manager)
+  # =============================================
+  - variable: FIREBASE_ADMIN_PROJECT_ID
+    secret: FIREBASE_ADMIN_PROJECT_ID
+  - variable: FIREBASE_ADMIN_CLIENT_EMAIL
+    secret: FIREBASE_ADMIN_CLIENT_EMAIL
+  - variable: FIREBASE_ADMIN_PRIVATE_KEY
+    secret: FIREBASE_ADMIN_PRIVATE_KEY
+  - variable: GEMINI_API_KEY
+    secret: GEMINI_API_KEY
+  - variable: SUPER_ADMIN_UID
+    secret: SUPER_ADMIN_UID

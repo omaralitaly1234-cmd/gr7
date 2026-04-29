@@ -1,21 +1,30 @@
 'use client';
 
-import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { PLAN_DEFINITIONS, AI_FEATURE_LABELS } from '@/lib/firebase/subscription';
 import { signIn } from '@/lib/firebase/auth';
 
 export default function OnboardingPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const locale = params?.locale || 'ar';
   const [step, setStep] = useState(1);
+  const [selectedPlan, setSelectedPlan] = useState('trial');
   const [formData, setFormData] = useState({
     gymName: '', gymNameEn: '', ownerName: '', email: '', phone: '', password: '', addressAr: '', addressEn: '',
   });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const planFromUrl = searchParams.get('plan');
+    if (planFromUrl && PLAN_DEFINITIONS[planFromUrl]) {
+      setSelectedPlan(planFromUrl);
+    }
+  }, [searchParams]);
 
   const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
@@ -39,6 +48,7 @@ export default function OnboardingPage() {
           gymNameEn: formData.gymNameEn,
           addressAr: formData.addressAr,
           addressEn: formData.addressEn,
+          selectedPlan: selectedPlan,
         }),
       });
 
@@ -167,41 +177,58 @@ export default function OnboardingPage() {
               gap: 'var(--space-4)',
               marginBottom: 'var(--space-8)',
             }}>
-              {plans.map((plan) => (
+              {plans.map((plan) => {
+                const isSelected = selectedPlan === plan.id;
+                return (
                 <div
                   key={plan.id}
                   className="card"
+                  onClick={() => setSelectedPlan(plan.id)}
                   style={{
                     textAlign: 'center',
                     padding: 'var(--space-5)',
-                    border: plan.highlight
-                      ? '2px solid var(--pt-info)'
-                      : plan.type === 'annual'
-                        ? '2px solid var(--pt-gold)'
-                        : undefined,
+                    border: isSelected
+                      ? '2px solid var(--pt-gold)'
+                      : '2px solid transparent',
                     position: 'relative',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s',
+                    transform: isSelected ? 'scale(1.03)' : 'scale(1)',
+                    boxShadow: isSelected ? '0 0 25px rgba(245,197,24,0.15)' : 'none',
                   }}
                 >
-                  {plan.highlight && (
+                  {isSelected && (
+                    <div style={{
+                      position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)',
+                      background: 'var(--pt-gold)', color: '#0a0a0a', fontSize: 'var(--font-size-xs)',
+                      fontWeight: 700, padding: '3px 14px', borderRadius: 'var(--radius-full)',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      ✓ {locale === 'ar' ? 'تم الاختيار' : 'Selected'}
+                    </div>
+                  )}
+
+                  {plan.highlight && !isSelected && (
                     <div style={{
                       position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)',
                       background: 'var(--pt-info)', color: 'white', fontSize: 'var(--font-size-xs)',
                       fontWeight: 700, padding: '3px 14px', borderRadius: 'var(--radius-full)',
                     }}>
-                      🎁 {locale === 'ar' ? 'ابدأ مجاناً' : 'Start Free'}
+                      🎁 {locale === 'ar' ? 'مجاناً' : 'Free'}
                     </div>
                   )}
 
-                  <h3 style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)', marginTop: plan.highlight ? 'var(--space-2)' : 0 }}>
+                  <h3 style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
                     {plan.name[locale] || plan.name.ar}
                   </h3>
 
                   <div style={{
                     fontSize: 'var(--font-size-2xl)', fontWeight: 800,
-                    color: plan.price === 0 ? 'var(--pt-success)' : 'var(--pt-gold)',
+                    color: isSelected ? 'var(--pt-gold)' : (plan.price === 0 ? 'var(--pt-success)' : 'var(--pt-gray-300)'),
                     marginBottom: 'var(--space-1)',
                   }}>
                     {plan.price === 0 ? (locale === 'ar' ? 'مجاناً' : 'Free') : `${plan.price.toLocaleString()}`}
+                    {plan.price > 0 && <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}> {locale === 'ar' ? 'ج.م' : 'EGP'}</span>}
                   </div>
 
                   <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)', marginBottom: 'var(--space-3)' }}>
@@ -210,16 +237,17 @@ export default function OnboardingPage() {
 
                   {plan.discount && (
                     <div className="badge badge-success" style={{ marginBottom: 'var(--space-2)' }}>
-                      {locale === 'ar' ? `خصم ${plan.discount}%` : `${plan.discount}% off`}
+                      🎁 {locale === 'ar' ? `خصم ${plan.discount}%` : `${plan.discount}% off`}
                     </div>
                   )}
 
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)', display: 'flex', flexDirection: 'column', gap: 4, marginTop: 'var(--space-2)' }}>
                     <span>👥 {plan.maxMembers === -1 ? '♾' : plan.maxMembers} {locale === 'ar' ? 'عضو' : 'members'}</span>
-                    <span>🤖 {plan.features?.ai_nutrition ? '✅' : '❌'} AI</span>
+                    <span>🏋️ {plan.maxTrainers === -1 ? '♾' : plan.maxTrainers} {locale === 'ar' ? 'مدرب' : 'trainers'}</span>
+                    <span>🤖 {plan.features?.ai_nutrition ? '✅' : '❌'} {locale === 'ar' ? 'ذكاء اصطناعي' : 'AI Features'}</span>
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
 
             {/* AI Features */}
@@ -243,6 +271,20 @@ export default function OnboardingPage() {
 
             {/* CTA */}
             <div style={{ textAlign: 'center' }}>
+              <div style={{
+                background: 'var(--pt-gold-glow)', border: '1px solid rgba(245,197,24,0.2)',
+                borderRadius: 'var(--radius-lg)', padding: 'var(--space-3) var(--space-5)',
+                marginBottom: 'var(--space-4)', display: 'inline-block',
+              }}>
+                <span style={{ color: 'var(--pt-gold)', fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>
+                  ✓ {locale === 'ar' ? 'الخطة المختارة:' : 'Selected Plan:'} {PLAN_DEFINITIONS[selectedPlan]?.name[locale]}
+                  {PLAN_DEFINITIONS[selectedPlan]?.price > 0
+                    ? ` — ${PLAN_DEFINITIONS[selectedPlan].price.toLocaleString()} ${locale === 'ar' ? 'ج.م' : 'EGP'}`
+                    : ` — ${locale === 'ar' ? 'مجاناً' : 'Free'}`
+                  }
+                </span>
+              </div>
+              <br />
               <button
                 className="btn btn-primary btn-lg"
                 onClick={() => setStep(2)}
@@ -252,8 +294,13 @@ export default function OnboardingPage() {
                   borderRadius: 'var(--radius-xl)',
                 }}
               >
-                🚀 {locale === 'ar' ? 'ابدأ فترتك التجريبية المجانية' : 'Start Your Free Trial'}
+                🚀 {locale === 'ar' ? 'المتابعة للتسجيل' : 'Continue to Register'}
               </button>
+              {selectedPlan !== 'trial' && (
+                <p style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)' }}>
+                  {locale === 'ar' ? '💳 الدفع بعد تفعيل الحساب — تحويل بنكي أو فودافون كاش' : '💳 Payment after activation — Bank transfer or Vodafone Cash'}
+                </p>
+              )}
             </div>
           </div>
         </>
@@ -306,7 +353,7 @@ export default function OnboardingPage() {
                 <input className="form-input" name="addressAr" value={formData.addressAr} onChange={handleChange} />
               </div>
 
-              {/* Trial Info Badge */}
+              {/* Selected Plan Info Badge */}
               <div style={{
                 background: 'var(--pt-gold-glow)',
                 border: '1px solid rgba(245,197,24,0.2)',
@@ -315,11 +362,17 @@ export default function OnboardingPage() {
                 marginBottom: 'var(--space-5)',
                 textAlign: 'center',
               }}>
-                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--pt-gold)', fontWeight: 600 }}>
-                  🎁 {locale === 'ar'
-                    ? 'ستبدأ بفترة تجريبية مجانية لمدة 3 أشهر'
-                    : 'You will start with a 3-month free trial'}
-                </span>
+                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--pt-gold)', fontWeight: 600 }}>
+                  ✓ {PLAN_DEFINITIONS[selectedPlan]?.name[locale]}
+                  {PLAN_DEFINITIONS[selectedPlan]?.price > 0
+                    ? ` — ${PLAN_DEFINITIONS[selectedPlan].price.toLocaleString()} ${locale === 'ar' ? 'ج.م' : 'EGP'}`
+                    : ''}
+                </div>
+                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-400)', marginTop: 4 }}>
+                  {selectedPlan === 'trial'
+                    ? (locale === 'ar' ? '🎁 فترة تجريبية مجانية 90 يوم' : '🎁 Free 90-day trial')
+                    : (locale === 'ar' ? '💳 الدفع بعد تفعيل الحساب' : '💳 Payment after account activation')}
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: 'var(--space-3)' }}>

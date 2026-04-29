@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { email, password, displayName, phone, lang, gymName, gymNameAr, gymNameEn, addressAr, addressEn } = body;
+    const { email, password, displayName, phone, lang, gymName, gymNameAr, gymNameEn, addressAr, addressEn, selectedPlan } = body;
 
     // Validate required fields
     if (!email || !password || !gymName) {
@@ -21,6 +21,12 @@ export async function POST(request) {
         { status: 400 }
       );
     }
+
+    // Resolve plan — default to trial
+    const { PLAN_DEFINITIONS } = await import('@/lib/firebase/subscription');
+    const planKey = selectedPlan && PLAN_DEFINITIONS[selectedPlan] ? selectedPlan : 'trial';
+    const plan = PLAN_DEFINITIONS[planKey];
+    const isTrial = planKey === 'trial';
 
     // Use Admin SDK for server-side user creation
     const { createUserServerSide, getAdminDb } = await import('@/lib/firebase/admin');
@@ -54,8 +60,8 @@ export async function POST(request) {
 
     // 3. Create tenant document
     const now = new Date();
-    const trialEnd = new Date(now);
-    trialEnd.setDate(trialEnd.getDate() + 90);
+    const endDate = new Date(now);
+    endDate.setDate(endDate.getDate() + plan.durationDays);
 
     const tenantRef = await adminDb.collection('tenants').add({
       name: gymName || '',
@@ -66,25 +72,20 @@ export async function POST(request) {
       phone: phone || '',
       address: { ar: addressAr || '', en: addressEn || '' },
       logo: '',
-      status: 'trial',
+      status: isTrial ? 'trial' : 'pending_payment',
       createdAt: Timestamp.now(),
       subscription: {
-        plan: 'trial',
+        plan: planKey,
         startDate: Timestamp.fromDate(now),
-        endDate: Timestamp.fromDate(trialEnd),
-        trialStartDate: Timestamp.fromDate(now),
-        trialEndDate: Timestamp.fromDate(trialEnd),
-        autoRenew: false,
+        endDate: Timestamp.fromDate(endDate),
+        trialStartDate: isTrial ? Timestamp.fromDate(now) : null,
+        trialEndDate: isTrial ? Timestamp.fromDate(endDate) : null,
+        autoRenew: !isTrial,
         lastPaymentDate: null,
-        nextPaymentDate: null,
+        nextPaymentDate: isTrial ? null : Timestamp.fromDate(endDate),
       },
-      features: {
-        ai_nutrition: false, ai_workout: false, ai_churn: false, ai_sentiment: false,
-        ai_pricing: false, ai_chatbot: false, ai_body_analysis: false, ai_social: false,
-        advanced_analytics: true, spa_module: true, inventory_module: true,
-        hr_module: true, sms_notifications: true,
-      },
-      limits: { maxMembers: 100, maxTrainers: 3 },
+      features: { ...plan.features },
+      limits: { maxMembers: plan.maxMembers, maxTrainers: plan.maxTrainers },
     });
 
     // 4. Link user to tenant

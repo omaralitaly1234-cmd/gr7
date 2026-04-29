@@ -223,7 +223,7 @@ export default function LandingPage() {
                   <li className={s.planFeature}><span className={s.showcaseCheck}>{p.features?.ai_nutrition ? '✓' : '✗'}</span> 🤖 {isAr ? 'ذكاء اصطناعي' : 'AI Features'}</li>
                   <li className={s.planFeature}><span className={s.showcaseCheck}>✓</span> 📊 {isAr ? 'تحليلات متقدمة' : 'Advanced Analytics'}</li>
                 </ul>
-                <Link href={`/${locale}/onboarding`} className={`${s.planBtn} ${p.id === 'quarterly' ? s.planBtnPrimary : ''}`}>
+                <Link href={`/${locale}/onboarding?plan=${p.id}`} className={`${s.planBtn} ${p.id === 'quarterly' ? s.planBtnPrimary : ''}`}>
                   {p.price === 0 ? (isAr ? 'ابدأ مجاناً' : 'Start Free') : (isAr ? 'اشترك الآن' : 'Subscribe Now')}
                 </Link>
               </div>

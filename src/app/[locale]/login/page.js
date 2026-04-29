@@ -40,10 +40,13 @@ export default function LoginPage({ params }) {
         setError(result.error[locale] || result.error.ar);
       } else {
         // Redirect based on role
-        const { getUserRole } = await import('@/lib/firebase/auth');
+        const { getUserRole, getUserData } = await import('@/lib/firebase/auth');
         const role = await getUserRole(result.user.uid);
+        const { data: uData } = await getUserData(result.user.uid);
         
-        if (role === 'admin') {
+        if (role === 'superadmin' || uData?.superAdmin === true) {
+          router.push(`/${locale}/super-admin/dashboard`);
+        } else if (role === 'admin') {
           router.push(`/${locale}/admin/dashboard`);
         } else if (role === 'trainer') {
           router.push(`/${locale}/trainer/dashboard`);

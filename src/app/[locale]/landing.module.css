@@ -1,6 +1,60 @@
 /* ===== Landing Page — Power Time SaaS ===== */
 
-.landing { background: #0a0a0a; min-height: 100vh; overflow-x: hidden; }
+.landing { background: #0a0a0a; min-height: 100vh; overflow-x: hidden; transition: background 0.5s, color 0.5s; }
+
+/* ===== Day Mode (Light Theme) ===== */
+.dayMode { background: #f8f7f4; color: #1a1a1a; }
+.dayMode .nav { background: rgba(248,247,244,0.85); border-bottom-color: rgba(0,0,0,0.06); }
+.dayMode .navScrolled { background: rgba(248,247,244,0.97); box-shadow: 0 2px 20px rgba(0,0,0,0.08); }
+.dayMode .navLogoText { color: #1a1a1a; }
+.dayMode .navLink { color: #555; }
+.dayMode .navLink:hover { color: #b8860b; background: rgba(184,134,11,0.06); }
+.dayMode .heroGlow { background: radial-gradient(circle, rgba(184,134,11,0.06) 0%, transparent 65%); }
+.dayMode .heroGrid { background-image: radial-gradient(rgba(0,0,0,0.04) 1px, transparent 1px); }
+.dayMode .heroBadge { background: rgba(184,134,11,0.08); border-color: rgba(184,134,11,0.2); color: #8b6914; }
+.dayMode .heroTitleGold { color: #8b6914; }
+.dayMode .heroTitleWhite { color: #1a1a1a; }
+.dayMode .heroDesc { color: #666; }
+.dayMode .heroBtn { background: linear-gradient(135deg, #b8860b, #8b6914); color: #fff; box-shadow: 0 4px 20px rgba(184,134,11,0.2); }
+.dayMode .heroBtn:hover { box-shadow: 0 8px 30px rgba(184,134,11,0.3); }
+.dayMode .heroBtnOutline { border-color: rgba(184,134,11,0.3); color: #8b6914; }
+.dayMode .heroBtnOutline:hover { background: rgba(184,134,11,0.06); }
+.dayMode .heroStat { background: #fff; border-color: rgba(0,0,0,0.06); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.dayMode .heroStatVal { color: #8b6914; }
+.dayMode .heroStatLabel { color: #888; }
+.dayMode .heroImg { border-color: rgba(0,0,0,0.08); box-shadow: 0 15px 40px rgba(0,0,0,0.12); }
+.dayMode .heroImgGlow { background: radial-gradient(circle at center, rgba(184,134,11,0.06) 0%, transparent 70%); }
+.dayMode .sectionTag { color: #8b6914; }
+.dayMode .sectionTitle { color: #1a1a1a; }
+.dayMode .sectionDesc { color: #666; }
+.dayMode .featureCard { background: #fff; border-color: rgba(0,0,0,0.06); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.dayMode .featureCard:hover { border-color: rgba(184,134,11,0.2); box-shadow: 0 8px 25px rgba(0,0,0,0.08); }
+.dayMode .featureIcon { background: rgba(184,134,11,0.08); }
+.dayMode .featureTitle { color: #1a1a1a; }
+.dayMode .featureDesc { color: #666; }
+.dayMode .showcase { background: linear-gradient(180deg, transparent, rgba(184,134,11,0.02), transparent); }
+.dayMode .showcaseImg { border-color: rgba(0,0,0,0.08); box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+.dayMode .showcaseTag { color: #8b6914; }
+.dayMode .showcaseTitle { color: #1a1a1a; }
+.dayMode .showcaseDesc { color: #666; }
+.dayMode .showcaseListItem { color: #444; }
+.dayMode .showcaseCheck { color: #8b6914; }
+.dayMode .planCard { background: #fff; border-color: rgba(0,0,0,0.06); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.dayMode .planCard:hover { border-color: rgba(184,134,11,0.2); box-shadow: 0 8px 25px rgba(0,0,0,0.08); }
+.dayMode .planPopular { border-color: #b8860b; box-shadow: 0 4px 25px rgba(184,134,11,0.12); }
+.dayMode .planBadge { background: #b8860b; }
+.dayMode .planName { color: #666; }
+.dayMode .planPrice { color: #1a1a1a; }
+.dayMode .planPer { color: #888; }
+.dayMode .planFeature { color: #555; }
+.dayMode .planBtn { border-color: #b8860b; color: #8b6914; }
+.dayMode .planBtnPrimary { background: linear-gradient(135deg, #b8860b, #8b6914); color: #fff; }
+.dayMode .cta { background: linear-gradient(180deg, transparent, rgba(184,134,11,0.03)); }
+.dayMode .ctaTitle { color: #1a1a1a; }
+.dayMode .ctaDesc { color: #666; }
+.dayMode .footer { border-top-color: rgba(0,0,0,0.06); }
+.dayMode .footerName { color: #8b6914; }
+.dayMode .footerCopy { color: #999; }
 
 /* Navbar */
 .nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 72px; display: flex; align-items: center; justify-content: space-between; padding: 0 2.5rem; background: rgba(10,10,10,0.8); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(245,197,24,0.08); transition: all 0.3s; }

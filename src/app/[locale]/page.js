@@ -13,10 +13,13 @@ export default function LandingPage() {
   const isAr = locale === 'ar';
   const sw = isAr ? 'en' : 'ar';
   const [scrolled, setScrolled] = useState(false);
+  const [isDay, setIsDay] = useState(false);
 
   useEffect(() => {
     const h = () => setScrolled(window.scrollY > 40);
     window.addEventListener('scroll', h);
+    const hour = new Date().getHours();
+    setIsDay(hour >= 6 && hour < 18);
     return () => window.removeEventListener('scroll', h);
   }, []);
 
@@ -72,7 +75,7 @@ export default function LandingPage() {
   ];
 
   return (
-    <div className={s.landing}>
+    <div className={`${s.landing} ${isDay ? s.dayMode : ''}`}>
       {/* === Navbar === */}
       <nav className={`${s.nav} ${scrolled ? s.navScrolled : ''}`}>
         <Link href={`/${locale}`} className={s.navLogo}>
@@ -86,6 +89,7 @@ export default function LandingPage() {
           <Link href={`/${sw}`} className={s.navLink}>{isAr ? 'English' : 'عربي'}</Link>
           <Link href={`/${locale}/login`} className={s.navLink}>{isAr ? 'دخول' : 'Sign In'}</Link>
           <Link href={`/${locale}/onboarding`} className={s.navCta}>{isAr ? 'ابدأ مجاناً' : 'Start Free'}</Link>
+          <button onClick={() => setIsDay(!isDay)} className={s.navLink} aria-label="Toggle theme">{isDay ? '🌙' : '☀️'}</button>
         </div>
       </nav>
 

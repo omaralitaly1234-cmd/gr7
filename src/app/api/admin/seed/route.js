@@ -11,8 +11,8 @@ export async function POST(request) {
     }
 
     // Only allow Super Admin UID or env-configured UID
-    const superAdminUid = process.env.SUPER_ADMIN_UID;
-    if (auth.uid !== superAdminUid) {
+    const superAdminUids = process.env.SUPER_ADMIN_UID ? process.env.SUPER_ADMIN_UID.split(',') : [];
+    if (!superAdminUids.includes(auth.uid)) {
       return NextResponse.json(
         { error: 'forbidden', message: 'Only Super Admin can seed the database' },
         { status: 403 }

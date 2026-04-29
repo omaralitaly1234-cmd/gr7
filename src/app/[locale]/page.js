@@ -3,9 +3,60 @@
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import s from './landing.module.css';
 import { PLAN_DEFINITIONS } from '@/lib/firebase/subscription';
+
+// Scroll animation hook
+function useScrollAnim() {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } }, { threshold: 0.15 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return [ref, visible];
+}
+
+// Animated counter
+function Counter({ end, suffix = '', duration = 2000 }) {
+  const [val, setVal] = useState(0);
+  const ref = useRef(null);
+  const started = useRef(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting && !started.current) {
+        started.current = true;
+        const num = parseFloat(end.toString().replace(/[^0-9.]/g, ''));
+        if (isNaN(num)) { setVal(end); obs.disconnect(); return; }
+        const start = performance.now();
+        const animate = (now) => {
+          const progress = Math.min((now - start) / duration, 1);
+          const eased = 1 - Math.pow(1 - progress, 3);
+          setVal(Math.floor(num * eased));
+          if (progress < 1) requestAnimationFrame(animate);
+          else setVal(num);
+        };
+        requestAnimationFrame(animate);
+        obs.disconnect();
+      }
+    }, { threshold: 0.5 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [end, duration]);
+  return <span ref={ref} className={s.counter}>{typeof end === 'string' && end.includes('.') ? val.toFixed(1) : val}{suffix}</span>;
+}
+
+// Anim wrapper
+function Anim({ children, delay = 0 }) {
+  const [ref, vis] = useScrollAnim();
+  return <div ref={ref} className={`${s.animItem} ${vis ? s.animVisible : ''}`} style={{ transitionDelay: `${delay}ms` }}>{children}</div>;
+}
 
 export default function LandingPage() {
   const params = useParams();
@@ -36,48 +87,23 @@ export default function LandingPage() {
   ];
 
   const stats = [
-    { v: '10K+', l: isAr ? 'عضو نشط' : 'Active Members' },
-    { v: '500+', l: isAr ? 'نادي ومركز' : 'Gyms & Centers' },
-    { v: '99.9%', l: isAr ? 'وقت التشغيل' : 'Uptime' },
-    { v: '4.9★', l: isAr ? 'تقييم العملاء' : 'Client Rating' },
+    { v: 10, s: 'K+', l: isAr ? 'عضو نشط' : 'Active Members' },
+    { v: 500, s: '+', l: isAr ? 'نادي ومركز' : 'Gyms & Centers' },
+    { v: 99.9, s: '%', l: isAr ? 'وقت التشغيل' : 'Uptime' },
+    { v: 4.9, s: '★', l: isAr ? 'تقييم العملاء' : 'Client Rating' },
   ];
 
   const showcases = [
-    {
-      img: '/images/Futuristic gym dashboard in gold accents.webp',
-      tag: isAr ? 'لوحة تحكم ذكية' : 'Smart Dashboard',
-      title: isAr ? 'تحكم كامل من شاشة واحدة' : 'Full Control From One Screen',
-      desc: isAr ? 'لوحة تحكم تفاعلية تعرض كل ما تحتاجه — الأعضاء النشطين، الإيرادات، الحضور، والتنبيهات في الوقت الحقيقي. صُممت لتمنحك رؤية 360° لناديك.' : 'An interactive dashboard showing everything you need — active members, revenue, attendance, and real-time alerts. Designed to give you a 360° view of your gym.',
-      list: isAr ? ['إحصائيات فورية ومحدثة','تنبيهات ذكية للاشتراكات المنتهية','تقارير مالية يومية وشهرية','متابعة أداء المدربين'] : ['Real-time updated statistics','Smart alerts for expiring subscriptions','Daily & monthly financial reports','Trainer performance monitoring'],
-    },
-    {
-      img: '/images/PowerTime gym session with trainer.webp',
-      tag: isAr ? 'إدارة المدربين' : 'Trainer Management',
-      title: isAr ? 'مدربين أكثر إنتاجية' : 'More Productive Trainers',
-      desc: isAr ? 'امنح مدربيك أدوات احترافية لإنشاء برامج تدريبية مخصصة وخطط تغذية بالذكاء الاصطناعي ومتابعة تقدم كل عميل.' : 'Give your trainers professional tools to create custom workout programs, AI nutrition plans, and track every client\'s progress.',
-      list: isAr ? ['برامج تدريب مخصصة لكل عميل','خطط تغذية بالذكاء الاصطناعي','متابعة القياسات والتحول','تقييم أداء تلقائي'] : ['Custom training programs per client','AI-powered nutrition plans','Body measurements & transformation tracking','Automated performance evaluation'],
-      reverse: true,
-    },
-    {
-      img: '/images/Luxurious spa booking experience.webp',
-      tag: isAr ? 'خدمات السبا' : 'Spa Services',
-      title: isAr ? 'تجربة سبا فاخرة ومتكاملة' : 'Premium Integrated Spa Experience',
-      desc: isAr ? 'نظام حجز متطور لخدمات السبا — ساونا، جاكوزي، حمام مغربي، ومساج. مع تتبع تلقائي لحقوق الأعضاء الماسيين.' : 'Advanced booking system for spa services — sauna, jacuzzi, Moroccan bath & massage. With automatic Diamond member entitlement tracking.',
-      list: isAr ? ['حجز فوري للخدمات','تتبع حقوق الأعضاء الماسيين','جدول الخدمات اليومي','تقارير إشغال السبا'] : ['Instant service booking','Diamond member entitlement tracking','Daily service schedule','Spa occupancy reports'],
-    },
+    { img: '/images/Futuristic gym dashboard in gold accents.webp', tag: isAr ? 'لوحة تحكم ذكية' : 'Smart Dashboard', title: isAr ? 'تحكم كامل من شاشة واحدة' : 'Full Control From One Screen', desc: isAr ? 'لوحة تحكم تفاعلية تعرض كل ما تحتاجه — الأعضاء النشطين، الإيرادات، الحضور، والتنبيهات في الوقت الحقيقي.' : 'An interactive dashboard showing everything — active members, revenue, attendance, and real-time alerts.', list: isAr ? ['إحصائيات فورية ومحدثة','تنبيهات ذكية للاشتراكات المنتهية','تقارير مالية يومية وشهرية','متابعة أداء المدربين'] : ['Real-time updated statistics','Smart alerts for expiring subscriptions','Daily & monthly financial reports','Trainer performance monitoring'] },
+    { img: '/images/PowerTime gym session with trainer.webp', tag: isAr ? 'إدارة المدربين' : 'Trainer Management', title: isAr ? 'مدربين أكثر إنتاجية' : 'More Productive Trainers', desc: isAr ? 'امنح مدربيك أدوات احترافية لإنشاء برامج تدريبية مخصصة وخطط تغذية بالذكاء الاصطناعي.' : 'Give trainers professional tools for custom workout programs and AI nutrition plans.', list: isAr ? ['برامج تدريب مخصصة لكل عميل','خطط تغذية بالذكاء الاصطناعي','متابعة القياسات والتحول','تقييم أداء تلقائي'] : ['Custom training programs per client','AI-powered nutrition plans','Body measurements & transformation tracking','Automated performance evaluation'], reverse: true },
+    { img: '/images/Luxurious spa booking experience.webp', tag: isAr ? 'خدمات السبا' : 'Spa Services', title: isAr ? 'تجربة سبا فاخرة ومتكاملة' : 'Premium Integrated Spa Experience', desc: isAr ? 'نظام حجز متطور لخدمات السبا — ساونا، جاكوزي، حمام مغربي، ومساج.' : 'Advanced booking system for spa services — sauna, jacuzzi, Moroccan bath & massage.', list: isAr ? ['حجز فوري للخدمات','تتبع حقوق الأعضاء الماسيين','جدول الخدمات اليومي','تقارير إشغال السبا'] : ['Instant service booking','Diamond member entitlement tracking','Daily service schedule','Spa occupancy reports'] },
   ];
 
-  const plans = [
-    { ...PLAN_DEFINITIONS.trial, highlight: true },
-    PLAN_DEFINITIONS.monthly,
-    PLAN_DEFINITIONS.quarterly,
-    PLAN_DEFINITIONS.semi_annual,
-    PLAN_DEFINITIONS.annual,
-  ];
+  const plans = [{ ...PLAN_DEFINITIONS.trial, highlight: true }, PLAN_DEFINITIONS.monthly, PLAN_DEFINITIONS.quarterly, PLAN_DEFINITIONS.semi_annual, PLAN_DEFINITIONS.annual];
 
   return (
     <div className={`${s.landing} ${isDay ? s.dayMode : ''}`}>
-      {/* === Navbar === */}
+      {/* Navbar */}
       <nav className={`${s.nav} ${scrolled ? s.navScrolled : ''}`}>
         <Link href={`/${locale}`} className={s.navLogo}>
           <span className={s.navLogoIcon}>⚡</span>
@@ -92,7 +118,6 @@ export default function LandingPage() {
           <Link href={`/${locale}/onboarding`} className={s.navCta}>{isAr ? 'ابدأ مجاناً' : 'Start Free'}</Link>
           <button onClick={() => setIsDay(!isDay)} className={s.navLink} aria-label="Toggle theme">{isDay ? '🌙' : '☀️'}</button>
         </div>
-        {/* Mobile Controls */}
         <div className={s.navMobileRight}>
           <button onClick={() => setIsDay(!isDay)} className={s.navLink} aria-label="Toggle theme">{isDay ? '🌙' : '☀️'}</button>
           <Link href={`/${locale}/onboarding`} className={s.navCta}>{isAr ? 'ابدأ' : 'Start'}</Link>
@@ -103,7 +128,6 @@ export default function LandingPage() {
           </button>
         </div>
       </nav>
-      {/* Mobile Menu */}
       <div className={`${s.mobileMenu} ${menuOpen ? s.mobileMenuOpen : ''}`}>
         <a href="#features" className={s.mobileLink} onClick={() => setMenuOpen(false)}>⚡ {isAr ? 'المميزات' : 'Features'}</a>
         <a href="#showcase" className={s.mobileLink} onClick={() => setMenuOpen(false)}>📱 {isAr ? 'النظام' : 'System'}</a>
@@ -113,36 +137,26 @@ export default function LandingPage() {
         <Link href={`/${locale}/onboarding`} className={s.mobileCta} onClick={() => setMenuOpen(false)}>🚀 {isAr ? 'ابدأ مجاناً' : 'Start Free'}</Link>
       </div>
 
-      {/* === Hero === */}
+      {/* Hero */}
       <section className={s.hero}>
         <div className={s.heroGlow} />
         <div className={s.heroGrid} />
         <div className={s.heroContent}>
           <div className={s.heroText}>
-            <div className={s.heroBadge}>
-              ⚡ {isAr ? 'نظام إدارة الأندية #1 في الشرق الأوسط' : '#1 Gym Management System in the Middle East'}
-            </div>
+            <div className={s.heroBadge}>⚡ {isAr ? 'نظام إدارة الأندية #1 في الشرق الأوسط' : '#1 Gym Management System in the Middle East'}</div>
             <h1 className={s.heroTitle}>
               <span className={s.heroTitleGold}>Power Time</span>
               <span className={s.heroTitleWhite}>{isAr ? 'أكتر من مجرد جيم' : 'More Than a Gym'}</span>
             </h1>
-            <p className={s.heroDesc}>
-              {isAr
-                ? 'نظام إدارة سحابي متكامل للأندية والجيمات — إدارة العضويات، الاشتراكات، المدربين، السبا، المالية، والحضور بكود QR. كل ما تحتاجه لإدارة ناديك باحترافية عالمية.'
-                : 'All-in-one cloud gym management — memberships, subscriptions, trainers, spa, finance & QR attendance. Everything you need to run your gym with world-class professionalism.'}
-            </p>
+            <p className={s.heroDesc}>{isAr ? 'نظام إدارة سحابي متكامل للأندية والجيمات — إدارة العضويات، الاشتراكات، المدربين، السبا، المالية، والحضور بكود QR. كل ما تحتاجه لإدارة ناديك باحترافية عالمية.' : 'All-in-one cloud gym management — memberships, subscriptions, trainers, spa, finance & QR attendance. Everything you need to run your gym with world-class professionalism.'}</p>
             <div className={s.heroBtns}>
-              <Link href={`/${locale}/onboarding`} className={s.heroBtn}>
-                {isAr ? '🚀 ابدأ 3 شهور مجاناً' : '🚀 Start 3 Months Free'}
-              </Link>
-              <a href="#showcase" className={s.heroBtnOutline}>
-                {isAr ? 'شاهد النظام' : 'See the System'} ↓
-              </a>
+              <Link href={`/${locale}/onboarding`} className={s.heroBtn}>{isAr ? '🚀 ابدأ 3 شهور مجاناً' : '🚀 Start 3 Months Free'}</Link>
+              <a href="#showcase" className={s.heroBtnOutline}>{isAr ? 'شاهد النظام' : 'See the System'} ↓</a>
             </div>
             <div className={s.heroStats}>
               {stats.map((st, i) => (
                 <div key={i} className={s.heroStat}>
-                  <div className={s.heroStatVal}>{st.v}</div>
+                  <div className={s.heroStatVal}><Counter end={st.v} suffix={st.s} /></div>
                   <div className={s.heroStatLabel}>{st.l}</div>
                 </div>
               ))}
@@ -155,105 +169,91 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* === Features === */}
+      {/* Features */}
       <section id="features" className={s.section}>
-        <span className={s.sectionTag}>{isAr ? 'المميزات' : 'FEATURES'}</span>
-        <h2 className={s.sectionTitle}>{isAr ? 'كل ما يحتاجه ناديك في مكان واحد' : 'Everything Your Gym Needs in One Place'}</h2>
-        <p className={s.sectionDesc}>{isAr ? 'نظام متكامل يغطي كل جوانب إدارة الأندية الحديثة — من العضويات حتى الذكاء الاصطناعي.' : 'A complete system covering every aspect of modern gym management — from memberships to AI.'}</p>
+        <Anim><span className={s.sectionTag}>{isAr ? 'المميزات' : 'FEATURES'}</span></Anim>
+        <Anim delay={100}><h2 className={s.sectionTitle}>{isAr ? 'كل ما يحتاجه ناديك في مكان واحد' : 'Everything Your Gym Needs in One Place'}</h2></Anim>
+        <Anim delay={200}><p className={s.sectionDesc}>{isAr ? 'نظام متكامل يغطي كل جوانب إدارة الأندية الحديثة — من العضويات حتى الذكاء الاصطناعي.' : 'A complete system covering every aspect of modern gym management — from memberships to AI.'}</p></Anim>
         <div className={s.featuresGrid}>
           {features.map((f, i) => (
-            <div key={i} className={s.featureCard}>
-              <div className={s.featureIcon}>{f.icon}</div>
-              <div>
-                <h3 className={s.featureTitle}>{f.t}</h3>
-                <p className={s.featureDesc}>{f.d}</p>
+            <Anim key={i} delay={i * 80}>
+              <div className={s.featureCard}>
+                <div className={s.featureIcon}>{f.icon}</div>
+                <div><h3 className={s.featureTitle}>{f.t}</h3><p className={s.featureDesc}>{f.d}</p></div>
               </div>
-            </div>
+            </Anim>
           ))}
         </div>
       </section>
 
-      {/* === Showcase === */}
+      {/* Showcase */}
       <section id="showcase" className={s.showcase}>
         <div className={s.showcaseInner}>
-          <span className={s.sectionTag}>{isAr ? 'داخل النظام' : 'INSIDE THE SYSTEM'}</span>
-          <h2 className={s.sectionTitle}>{isAr ? 'شاهد القوة بنفسك' : 'See the Power Yourself'}</h2>
-          <p className={s.sectionDesc}>{isAr ? 'نظام صُمم ليمنحك السيطرة الكاملة على كل تفصيلة في ناديك.' : 'A system designed to give you complete control over every detail of your gym.'}</p>
-
+          <Anim><span className={s.sectionTag}>{isAr ? 'داخل النظام' : 'INSIDE THE SYSTEM'}</span></Anim>
+          <Anim delay={100}><h2 className={s.sectionTitle}>{isAr ? 'شاهد القوة بنفسك' : 'See the Power Yourself'}</h2></Anim>
+          <Anim delay={200}><p className={s.sectionDesc}>{isAr ? 'نظام صُمم ليمنحك السيطرة الكاملة على كل تفصيلة في ناديك.' : 'A system designed to give you complete control over every detail of your gym.'}</p></Anim>
           {showcases.map((sc, i) => (
-            <div key={i} className={`${s.showcaseRow} ${sc.reverse ? s.showcaseRowReverse : ''}`}>
-              <div>
-                <div className={s.showcaseTag}>⚡ {sc.tag}</div>
-                <h3 className={s.showcaseTitle}>{sc.title}</h3>
-                <p className={s.showcaseDesc}>{sc.desc}</p>
-                <ul className={s.showcaseList}>
-                  {sc.list.map((item, j) => (
-                    <li key={j} className={s.showcaseListItem}>
-                      <span className={s.showcaseCheck}>✓</span> {item}
-                    </li>
-                  ))}
-                </ul>
+            <Anim key={i} delay={100}>
+              <div className={`${s.showcaseRow} ${sc.reverse ? s.showcaseRowReverse : ''}`}>
+                <div>
+                  <div className={s.showcaseTag}>⚡ {sc.tag}</div>
+                  <h3 className={s.showcaseTitle}>{sc.title}</h3>
+                  <p className={s.showcaseDesc}>{sc.desc}</p>
+                  <ul className={s.showcaseList}>
+                    {sc.list.map((item, j) => (<li key={j} className={s.showcaseListItem}><span className={s.showcaseCheck}>✓</span> {item}</li>))}
+                  </ul>
+                </div>
+                <Image src={sc.img} alt={sc.tag} width={560} height={560} className={s.showcaseImg} />
               </div>
-              <Image src={sc.img} alt={sc.tag} width={560} height={560} className={s.showcaseImg} />
-            </div>
+            </Anim>
           ))}
         </div>
       </section>
 
-      {/* === Plans === */}
+      {/* Plans */}
       <section id="plans" className={s.plans}>
         <div className={s.plansInner}>
-          <span className={s.sectionTag}>{isAr ? 'خطط الاشتراك' : 'PRICING'}</span>
-          <h2 className={s.sectionTitle}>{isAr ? 'ابدأ مجاناً، وتوسّع حسب احتياجك' : 'Start Free, Scale as You Grow'}</h2>
-          <p className={s.sectionDesc}>{isAr ? 'خطط مرنة تناسب كل أحجام الأندية — من ناديك الصغير حتى سلسلة أندية كبيرة.' : 'Flexible plans for all gym sizes — from your small club to a large fitness chain.'}</p>
+          <Anim><span className={s.sectionTag}>{isAr ? 'خطط الاشتراك' : 'PRICING'}</span></Anim>
+          <Anim delay={100}><h2 className={s.sectionTitle}>{isAr ? 'ابدأ مجاناً، وتوسّع حسب احتياجك' : 'Start Free, Scale as You Grow'}</h2></Anim>
+          <Anim delay={200}><p className={s.sectionDesc}>{isAr ? 'خطط مرنة تناسب كل أحجام الأندية — من ناديك الصغير حتى سلسلة أندية كبيرة.' : 'Flexible plans for all gym sizes — from your small club to a large fitness chain.'}</p></Anim>
           <div className={s.plansGrid}>
-            {plans.map((p) => (
-              <div key={p.id} className={`${s.planCard} ${p.id === 'quarterly' ? s.planPopular : ''}`}>
-                {p.id === 'quarterly' && <div className={s.planBadge}>{isAr ? '⭐ الأكثر طلباً' : '⭐ Most Popular'}</div>}
-                <div className={s.planName}>{p.name[locale] || p.name.ar}</div>
-                <div className={s.planPrice}>
-                  {p.price === 0 ? (isAr ? 'مجاناً' : 'Free') : p.price.toLocaleString()}
-                  {p.price > 0 && <span className={s.planPer}> {isAr ? 'ج.م' : 'EGP'}</span>}
+            {plans.map((p, i) => (
+              <Anim key={p.id} delay={i * 80}>
+                <div className={`${s.planCard} ${p.id === 'quarterly' ? s.planPopular : ''}`}>
+                  {p.id === 'quarterly' && <div className={s.planBadge}>{isAr ? '⭐ الأكثر طلباً' : '⭐ Most Popular'}</div>}
+                  <div className={s.planName}>{p.name[locale] || p.name.ar}</div>
+                  <div className={s.planPrice}>{p.price === 0 ? (isAr ? 'مجاناً' : 'Free') : p.price.toLocaleString()}{p.price > 0 && <span className={s.planPer}> {isAr ? 'ج.م' : 'EGP'}</span>}</div>
+                  <div className={s.planPer}>{p.durationDays} {isAr ? 'يوم' : 'days'}</div>
+                  {p.discount && <div style={{ color: 'var(--pt-gold)', fontSize: '.8rem', fontWeight: 700, marginTop: 6 }}>🎁 {isAr ? `خصم ${p.discount}%` : `${p.discount}% off`}</div>}
+                  <ul className={s.planFeatures}>
+                    <li className={s.planFeature}><span className={s.showcaseCheck}>✓</span> 👥 {p.maxMembers === -1 ? '♾' : p.maxMembers} {isAr ? 'عضو' : 'members'}</li>
+                    <li className={s.planFeature}><span className={s.showcaseCheck}>✓</span> 🏋️ {p.maxTrainers === -1 ? '♾' : p.maxTrainers} {isAr ? 'مدرب' : 'trainers'}</li>
+                    <li className={s.planFeature}><span className={s.showcaseCheck}>{p.features?.ai_nutrition ? '✓' : '✗'}</span> 🤖 {isAr ? 'ذكاء اصطناعي' : 'AI'}</li>
+                    <li className={s.planFeature}><span className={s.showcaseCheck}>✓</span> 📊 {isAr ? 'تحليلات' : 'Analytics'}</li>
+                  </ul>
+                  <Link href={`/${locale}/onboarding?plan=${p.id}`} className={`${s.planBtn} ${p.id === 'quarterly' ? s.planBtnPrimary : ''}`}>{p.price === 0 ? (isAr ? 'ابدأ مجاناً' : 'Start Free') : (isAr ? 'اشترك الآن' : 'Subscribe Now')}</Link>
                 </div>
-                <div className={s.planPer}>{p.durationDays} {isAr ? 'يوم' : 'days'}</div>
-                {p.discount && <div style={{ color: 'var(--pt-gold)', fontSize: '0.78rem', fontWeight: 700, marginTop: 6 }}>🎁 {isAr ? `خصم ${p.discount}%` : `${p.discount}% off`}</div>}
-                <ul className={s.planFeatures}>
-                  <li className={s.planFeature}><span className={s.showcaseCheck}>✓</span> 👥 {p.maxMembers === -1 ? '♾' : p.maxMembers} {isAr ? 'عضو' : 'members'}</li>
-                  <li className={s.planFeature}><span className={s.showcaseCheck}>✓</span> 🏋️ {p.maxTrainers === -1 ? '♾' : p.maxTrainers} {isAr ? 'مدرب' : 'trainers'}</li>
-                  <li className={s.planFeature}><span className={s.showcaseCheck}>{p.features?.ai_nutrition ? '✓' : '✗'}</span> 🤖 {isAr ? 'ذكاء اصطناعي' : 'AI Features'}</li>
-                  <li className={s.planFeature}><span className={s.showcaseCheck}>✓</span> 📊 {isAr ? 'تحليلات متقدمة' : 'Advanced Analytics'}</li>
-                </ul>
-                <Link href={`/${locale}/onboarding?plan=${p.id}`} className={`${s.planBtn} ${p.id === 'quarterly' ? s.planBtnPrimary : ''}`}>
-                  {p.price === 0 ? (isAr ? 'ابدأ مجاناً' : 'Start Free') : (isAr ? 'اشترك الآن' : 'Subscribe Now')}
-                </Link>
-              </div>
+              </Anim>
             ))}
           </div>
         </div>
       </section>
 
-      {/* === CTA === */}
+      {/* CTA */}
       <section className={s.cta}>
-        <div className={s.ctaInner}>
-          <span style={{ fontSize: '4rem', display: 'block', marginBottom: '1rem' }}>⚡</span>
-          <h2 className={s.ctaTitle}>{isAr ? 'جاهز تطوّر ناديك؟' : 'Ready to Transform Your Gym?'}</h2>
-          <p className={s.ctaDesc}>
-            {isAr
-              ? 'انضم لمئات الأندية التي تدير أعمالها بذكاء مع Power Time. ابدأ فترتك التجريبية المجانية لمدة 3 أشهر الآن — بدون بطاقة ائتمان.'
-              : 'Join hundreds of gyms managing their business smartly with Power Time. Start your free 3-month trial now — no credit card required.'}
-          </p>
-          <Link href={`/${locale}/onboarding`} className={s.heroBtn}>
-            {isAr ? '🚀 ابدأ مجاناً الآن' : '🚀 Start Free Now'} →
-          </Link>
-        </div>
+        <Anim>
+          <div className={s.ctaInner}>
+            <span style={{ fontSize: '4.5rem', display: 'block', marginBottom: '1rem' }}>⚡</span>
+            <h2 className={s.ctaTitle}>{isAr ? 'جاهز تطوّر ناديك؟' : 'Ready to Transform Your Gym?'}</h2>
+            <p className={s.ctaDesc}>{isAr ? 'انضم لمئات الأندية التي تدير أعمالها بذكاء مع Power Time. ابدأ فترتك التجريبية المجانية لمدة 3 أشهر الآن — بدون بطاقة ائتمان.' : 'Join hundreds of gyms managing their business smartly with Power Time. Start your free 3-month trial now — no credit card required.'}</p>
+            <Link href={`/${locale}/onboarding`} className={s.heroBtn}>{isAr ? '🚀 ابدأ مجاناً الآن' : '🚀 Start Free Now'} →</Link>
+          </div>
+        </Anim>
       </section>
 
-      {/* === Footer === */}
+      {/* Footer */}
       <footer className={s.footer}>
-        <div className={s.footerBrand}>
-          <span className={s.footerLogo}>⚡</span>
-          <span className={s.footerName}>Power Time</span>
-        </div>
+        <div className={s.footerBrand}><span className={s.footerLogo}>⚡</span><span className={s.footerName}>Power Time</span></div>
         <p className={s.footerCopy}>© 2026 Power Time. {isAr ? 'جميع الحقوق محفوظة' : 'All rights reserved'}.</p>
       </footer>
     </div>

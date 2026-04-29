@@ -62,11 +62,33 @@
 .navLogo { display: flex; align-items: center; gap: 0.6rem; text-decoration: none; }
 .navLogoIcon { font-size: 1.6rem; filter: drop-shadow(0 0 12px rgba(245,197,24,0.5)); }
 .navLogoText { font-size: 1.2rem; font-weight: 800; color: var(--pt-gold); letter-spacing: -0.3px; }
-.navLinks { display: flex; align-items: center; gap: 0.5rem; }
+.navDesktop { display: flex; align-items: center; gap: 0.5rem; }
 .navLink { color: var(--pt-gray-400); font-size: 0.85rem; padding: 8px 16px; border-radius: 10px; text-decoration: none; transition: all 0.2s; border: none; background: none; cursor: pointer; }
 .navLink:hover { color: var(--pt-gold); background: rgba(245,197,24,0.06); }
 .navCta { background: linear-gradient(135deg, var(--pt-gold), #d4a520); color: #0a0a0a; padding: 10px 28px; border-radius: 12px; font-weight: 700; font-size: 0.9rem; text-decoration: none; transition: all 0.3s; border: none; cursor: pointer; }
 .navCta:hover { transform: translateY(-1px); box-shadow: 0 8px 25px rgba(245,197,24,0.3); }
+
+/* Mobile Nav Controls — hidden on desktop */
+.navMobileRight { display: none; align-items: center; gap: 0.5rem; }
+.burger { display: none; flex-direction: column; gap: 5px; padding: 8px; background: none; border: none; cursor: pointer; z-index: 110; }
+.burgerLine { display: block; width: 22px; height: 2px; background: var(--pt-gray-300); border-radius: 2px; transition: all 0.3s; }
+.burgerOpen1 { transform: rotate(45deg) translate(5px, 5px); background: var(--pt-gold); }
+.burgerOpen2 { opacity: 0; }
+.burgerOpen3 { transform: rotate(-45deg) translate(5px, -5px); background: var(--pt-gold); }
+
+/* Mobile Menu Drawer */
+.mobileMenu { position: fixed; top: 60px; left: 0; right: 0; z-index: 99; background: rgba(10,10,10,0.97); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(245,197,24,0.1); padding: 0; max-height: 0; overflow: hidden; transition: max-height 0.4s ease, padding 0.4s ease; display: none; flex-direction: column; }
+.mobileMenuOpen { max-height: 500px; padding: 1rem 1.25rem 1.5rem; }
+.mobileLink { color: var(--pt-gray-300); font-size: 1rem; padding: 14px 16px; border-radius: 12px; text-decoration: none; transition: all 0.2s; display: flex; align-items: center; gap: 10px; }
+.mobileLink:hover { color: var(--pt-gold); background: rgba(245,197,24,0.06); }
+.mobileCta { display: block; text-align: center; margin-top: 0.5rem; padding: 14px; border-radius: 12px; font-weight: 700; font-size: 1rem; text-decoration: none; background: linear-gradient(135deg, var(--pt-gold), #d4a520); color: #0a0a0a; }
+
+/* Day mode mobile menu */
+.dayMode .mobileMenu { background: rgba(248,247,244,0.97); border-bottom-color: rgba(0,0,0,0.06); }
+.dayMode .mobileLink { color: #555; }
+.dayMode .mobileLink:hover { color: #8b6914; background: rgba(184,134,11,0.06); }
+.dayMode .mobileCta { background: linear-gradient(135deg, #b8860b, #8b6914); color: #fff; }
+.dayMode .burgerLine { background: #555; }
 
 /* Hero */
 .hero { min-height: 100vh; display: flex; align-items: center; position: relative; padding: 100px 2.5rem 60px; }
@@ -163,12 +185,13 @@
 
 /* ===== Responsive — Mobile ===== */
 @media (max-width: 768px) {
-  /* Navbar */
+  /* Navbar — show hamburger, hide desktop */
   .nav { padding: 0 1rem; height: 60px; }
+  .navDesktop { display: none; }
+  .navMobileRight { display: flex; }
+  .burger { display: flex; }
+  .mobileMenu { display: flex; }
   .navLogoText { font-size: 1rem; }
-  .navLinks { gap: 0; }
-  .navLink { padding: 6px 8px; font-size: 0.75rem; }
-  .navCta { padding: 8px 16px; font-size: 0.8rem; border-radius: 10px; }
 
   /* Hero */
   .hero { padding: 80px 1.25rem 40px; min-height: auto; }
@@ -233,8 +256,9 @@
 /* ===== Responsive — Small Mobile ===== */
 @media (max-width: 480px) {
   .nav { padding: 0 0.75rem; }
-  .navLink { display: none; }
-  .navCta { padding: 8px 14px; font-size: 0.78rem; }
+  .navCta { padding: 6px 12px; font-size: 0.72rem; }
+  .navLogoIcon { font-size: 1.3rem; }
+  .navLogoText { font-size: 0.9rem; }
 
   .hero { padding: 70px 1rem 30px; }
   .heroImage { max-width: 260px; }

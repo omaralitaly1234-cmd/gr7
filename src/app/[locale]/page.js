@@ -14,6 +14,7 @@ export default function LandingPage() {
   const sw = isAr ? 'en' : 'ar';
   const [scrolled, setScrolled] = useState(false);
   const [isDay, setIsDay] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     const h = () => setScrolled(window.scrollY > 40);
@@ -82,7 +83,7 @@ export default function LandingPage() {
           <span className={s.navLogoIcon}>⚡</span>
           <span className={s.navLogoText}>Power Time</span>
         </Link>
-        <div className={s.navLinks}>
+        <div className={s.navDesktop}>
           <a href="#features" className={s.navLink}>{isAr ? 'المميزات' : 'Features'}</a>
           <a href="#showcase" className={s.navLink}>{isAr ? 'النظام' : 'System'}</a>
           <a href="#plans" className={s.navLink}>{isAr ? 'الأسعار' : 'Pricing'}</a>
@@ -91,7 +92,26 @@ export default function LandingPage() {
           <Link href={`/${locale}/onboarding`} className={s.navCta}>{isAr ? 'ابدأ مجاناً' : 'Start Free'}</Link>
           <button onClick={() => setIsDay(!isDay)} className={s.navLink} aria-label="Toggle theme">{isDay ? '🌙' : '☀️'}</button>
         </div>
+        {/* Mobile Controls */}
+        <div className={s.navMobileRight}>
+          <button onClick={() => setIsDay(!isDay)} className={s.navLink} aria-label="Toggle theme">{isDay ? '🌙' : '☀️'}</button>
+          <Link href={`/${locale}/onboarding`} className={s.navCta}>{isAr ? 'ابدأ' : 'Start'}</Link>
+          <button className={s.burger} onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">
+            <span className={`${s.burgerLine} ${menuOpen ? s.burgerOpen1 : ''}`} />
+            <span className={`${s.burgerLine} ${menuOpen ? s.burgerOpen2 : ''}`} />
+            <span className={`${s.burgerLine} ${menuOpen ? s.burgerOpen3 : ''}`} />
+          </button>
+        </div>
       </nav>
+      {/* Mobile Menu */}
+      <div className={`${s.mobileMenu} ${menuOpen ? s.mobileMenuOpen : ''}`}>
+        <a href="#features" className={s.mobileLink} onClick={() => setMenuOpen(false)}>⚡ {isAr ? 'المميزات' : 'Features'}</a>
+        <a href="#showcase" className={s.mobileLink} onClick={() => setMenuOpen(false)}>📱 {isAr ? 'النظام' : 'System'}</a>
+        <a href="#plans" className={s.mobileLink} onClick={() => setMenuOpen(false)}>💎 {isAr ? 'الأسعار' : 'Pricing'}</a>
+        <Link href={`/${locale}/login`} className={s.mobileLink} onClick={() => setMenuOpen(false)}>🔐 {isAr ? 'تسجيل الدخول' : 'Sign In'}</Link>
+        <Link href={`/${sw}`} className={s.mobileLink} onClick={() => setMenuOpen(false)}>🌐 {isAr ? 'English' : 'عربي'}</Link>
+        <Link href={`/${locale}/onboarding`} className={s.mobileCta} onClick={() => setMenuOpen(false)}>🚀 {isAr ? 'ابدأ مجاناً' : 'Start Free'}</Link>
+      </div>
 
       {/* === Hero === */}
       <section className={s.hero}>

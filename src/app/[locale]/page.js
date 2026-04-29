@@ -1,286 +1,206 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
+import { useState, useEffect } from 'react';
+import s from './landing.module.css';
+import { PLAN_DEFINITIONS } from '@/lib/firebase/subscription';
 
 export default function LandingPage() {
-  const t = useTranslations();
   const params = useParams();
   const locale = params?.locale || 'ar';
   const isAr = locale === 'ar';
-  const switchLocale = isAr ? 'en' : 'ar';
+  const sw = isAr ? 'en' : 'ar';
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const h = () => setScrolled(window.scrollY > 40);
+    window.addEventListener('scroll', h);
+    return () => window.removeEventListener('scroll', h);
+  }, []);
 
   const features = [
-    { icon: '👥', title: isAr ? 'إدارة الأعضاء' : 'Member Management', desc: isAr ? 'نظام شامل لإدارة العضويات مع بحث متقدم وفلاتر ذكية وملفات تعريف مفصلة' : 'Complete membership management with advanced search, smart filters, and detailed profiles' },
-    { icon: '💳', title: isAr ? 'الاشتراكات والخطط' : 'Plans & Subscriptions', desc: isAr ? 'خطط ذهبية وماسية مرنة مع تجميد وتجديد تلقائي وتتبع الحصص' : 'Flexible Gold & Diamond plans with freeze, auto-renewal, and session tracking' },
-    { icon: '📱', title: isAr ? 'حضور بـ QR' : 'QR Attendance', desc: isAr ? 'مسح سريع لكود QR مع التحقق الفوري من صلاحية الاشتراك وتسجيل تلقائي' : 'Fast QR scan with instant subscription validation and automatic logging' },
-    { icon: '🧖', title: isAr ? 'إدارة السبا' : 'Spa Management', desc: isAr ? 'نظام حجز متكامل لخدمات السبا مع تتبع حقوق الأعضاء الماسيين' : 'Full booking system for spa services with Diamond member entitlement tracking' },
-    { icon: '💪', title: isAr ? 'بوابة المدرب' : 'Trainer Portal', desc: isAr ? 'برامج تمارين وأنظمة غذائية مخصصة مع متابعة تقدم العملاء' : 'Custom workout & diet plans with client progress tracking' },
-    { icon: '💰', title: isAr ? 'إدارة مالية' : 'Financial Management', desc: isAr ? 'تقارير مالية شاملة مع فواتير PDF وتتبع العمولات والمصاريف' : 'Comprehensive financial reports with PDF invoices and commission tracking' },
-    { icon: '📊', title: isAr ? 'تحليلات ذكية' : 'Smart Analytics', desc: isAr ? 'لوحة تحكم ذكية مع توقعات الإيرادات وتحليل سلوك الأعضاء' : 'Smart dashboard with revenue forecasting and member behavior analysis' },
-    { icon: '🔔', title: isAr ? 'إشعارات تلقائية' : 'Auto Notifications', desc: isAr ? 'تذكيرات تلقائية عبر واتساب للتجديد والمواعيد وأعياد الميلاد' : 'Automatic WhatsApp reminders for renewals, appointments, and birthdays' },
-  ];
-
-  const plans = [
-    {
-      name: isAr ? 'ذهبي — شهري' : 'Gold — Monthly',
-      price: '900',
-      duration: isAr ? 'شهر' : 'month',
-      type: 'gold',
-      features: [
-        isAr ? 'صالة الجيم والفيتنس' : 'Gym & Fitness Hall',
-        isAr ? 'فوطة نظيفة' : 'Hygiene Towel',
-        isAr ? 'دعوتين مجانيتين/شهر' : '2 Free Guest Invitations/month',
-        isAr ? 'تجميد حتى 14 يوم' : 'Freeze up to 14 days',
-      ],
-    },
-    {
-      name: isAr ? 'ذهبي — ربع سنوي' : 'Gold — Quarterly',
-      price: '2,400',
-      duration: isAr ? '3 شهور' : '3 months',
-      type: 'gold',
-      popular: true,
-      features: [
-        isAr ? 'كل مميزات الشهري' : 'All Monthly features',
-        isAr ? 'خصم 11%' : '11% discount',
-        isAr ? 'تجميد حتى 14 يوم' : 'Freeze up to 14 days',
-        isAr ? 'دعوتين مجانيتين/شهر' : '2 Free Guest Invitations/month',
-      ],
-    },
-    {
-      name: isAr ? 'ماسي — ربع سنوي' : 'Diamond — Quarterly',
-      price: '4,500',
-      duration: isAr ? '3 شهور' : '3 months',
-      type: 'diamond',
-      features: [
-        isAr ? 'مدرب خاص مخصص' : 'Personal Trainer',
-        isAr ? 'ساونا + جاكوزي + بخار' : 'Sauna + Jacuzzi + Steam',
-        isAr ? 'حمام مغربي/شهر' : 'Moroccan Bath/month',
-        isAr ? 'مساج/شهر + خزنة خاصة' : 'Massage/month + Private Locker',
-      ],
-    },
+    { icon: '👥', t: isAr ? 'إدارة العضويات الذكية' : 'Smart Membership Management', d: isAr ? 'نظام شامل لإدارة آلاف الأعضاء مع ملفات تعريف مفصلة، تجديد تلقائي، وفلاتر بحث متقدمة في ثوانٍ.' : 'Manage thousands of members with detailed profiles, auto-renewal, and advanced search filters in seconds.' },
+    { icon: '💳', t: isAr ? 'اشتراكات وخطط مرنة' : 'Flexible Plans & Subscriptions', d: isAr ? 'خطط ذهبية وماسية مع تجميد ذكي، تجديد تلقائي، وتتبع الحصص لكل عضو بدقة.' : 'Gold & Diamond plans with smart freeze, auto-renewal, and precise session tracking per member.' },
+    { icon: '📱', t: isAr ? 'حضور فوري بـ QR Code' : 'Instant QR Attendance', d: isAr ? 'مسح سريع لكود QR مع تحقق فوري من صلاحية الاشتراك وتسجيل تلقائي للحضور.' : 'Quick QR scan with instant subscription validation and automatic attendance logging.' },
+    { icon: '🧖', t: isAr ? 'إدارة السبا المتكاملة' : 'Full Spa Management', d: isAr ? 'نظام حجز متكامل لخدمات السبا والمساج والساونا مع تتبع حقوق الأعضاء الماسيين.' : 'Complete booking system for spa, massage & sauna with Diamond member entitlement tracking.' },
+    { icon: '💪', t: isAr ? 'بوابة المدرب الشخصي' : 'Personal Trainer Portal', d: isAr ? 'برامج تمارين وأنظمة غذائية مخصصة مع متابعة تقدم العملاء وتحليل الأداء.' : 'Custom workout & diet plans with client progress tracking and performance analysis.' },
+    { icon: '💰', t: isAr ? 'إدارة مالية شاملة' : 'Complete Financial Management', d: isAr ? 'تقارير مالية احترافية، فواتير PDF، تتبع العمولات والمصاريف، وتحليل الإيرادات.' : 'Professional financial reports, PDF invoices, commission tracking, and revenue analysis.' },
+    { icon: '🤖', t: isAr ? 'ذكاء اصطناعي متقدم' : 'Advanced AI Assistant', d: isAr ? 'مساعد ذكي يقدم خطط تغذية وتدريب مخصصة، تنبؤات بالإيرادات، وتحليل سلوك الأعضاء.' : 'AI assistant providing custom nutrition & workout plans, revenue forecasts, and member behavior analysis.' },
+    { icon: '🔔', t: isAr ? 'إشعارات وحملات ذكية' : 'Smart Notifications & Campaigns', d: isAr ? 'تذكيرات تلقائية للتجديد والمواعيد، حملات تسويقية مستهدفة، وإشعارات فورية.' : 'Auto reminders for renewals, targeted marketing campaigns, and instant push notifications.' },
   ];
 
   const stats = [
-    { value: '500+', label: isAr ? 'عضو نشط' : 'Active Members' },
-    { value: '50+', label: isAr ? 'مدرب محترف' : 'Pro Trainers' },
-    { value: '15+', label: isAr ? 'خدمة سبا' : 'Spa Services' },
-    { value: '99.9%', label: isAr ? 'وقت التشغيل' : 'Uptime' },
+    { v: '10K+', l: isAr ? 'عضو نشط' : 'Active Members' },
+    { v: '500+', l: isAr ? 'نادي ومركز' : 'Gyms & Centers' },
+    { v: '99.9%', l: isAr ? 'وقت التشغيل' : 'Uptime' },
+    { v: '4.9★', l: isAr ? 'تقييم العملاء' : 'Client Rating' },
+  ];
+
+  const showcases = [
+    {
+      img: '/images/Futuristic gym dashboard in gold accents.png',
+      tag: isAr ? 'لوحة تحكم ذكية' : 'Smart Dashboard',
+      title: isAr ? 'تحكم كامل من شاشة واحدة' : 'Full Control From One Screen',
+      desc: isAr ? 'لوحة تحكم تفاعلية تعرض كل ما تحتاجه — الأعضاء النشطين، الإيرادات، الحضور، والتنبيهات في الوقت الحقيقي. صُممت لتمنحك رؤية 360° لناديك.' : 'An interactive dashboard showing everything you need — active members, revenue, attendance, and real-time alerts. Designed to give you a 360° view of your gym.',
+      list: isAr ? ['إحصائيات فورية ومحدثة','تنبيهات ذكية للاشتراكات المنتهية','تقارير مالية يومية وشهرية','متابعة أداء المدربين'] : ['Real-time updated statistics','Smart alerts for expiring subscriptions','Daily & monthly financial reports','Trainer performance monitoring'],
+    },
+    {
+      img: '/images/PowerTime gym session with trainer.png',
+      tag: isAr ? 'إدارة المدربين' : 'Trainer Management',
+      title: isAr ? 'مدربين أكثر إنتاجية' : 'More Productive Trainers',
+      desc: isAr ? 'امنح مدربيك أدوات احترافية لإنشاء برامج تدريبية مخصصة وخطط تغذية بالذكاء الاصطناعي ومتابعة تقدم كل عميل.' : 'Give your trainers professional tools to create custom workout programs, AI nutrition plans, and track every client\'s progress.',
+      list: isAr ? ['برامج تدريب مخصصة لكل عميل','خطط تغذية بالذكاء الاصطناعي','متابعة القياسات والتحول','تقييم أداء تلقائي'] : ['Custom training programs per client','AI-powered nutrition plans','Body measurements & transformation tracking','Automated performance evaluation'],
+      reverse: true,
+    },
+    {
+      img: '/images/Luxurious spa booking experience.png',
+      tag: isAr ? 'خدمات السبا' : 'Spa Services',
+      title: isAr ? 'تجربة سبا فاخرة ومتكاملة' : 'Premium Integrated Spa Experience',
+      desc: isAr ? 'نظام حجز متطور لخدمات السبا — ساونا، جاكوزي، حمام مغربي، ومساج. مع تتبع تلقائي لحقوق الأعضاء الماسيين.' : 'Advanced booking system for spa services — sauna, jacuzzi, Moroccan bath & massage. With automatic Diamond member entitlement tracking.',
+      list: isAr ? ['حجز فوري للخدمات','تتبع حقوق الأعضاء الماسيين','جدول الخدمات اليومي','تقارير إشغال السبا'] : ['Instant service booking','Diamond member entitlement tracking','Daily service schedule','Spa occupancy reports'],
+    },
+  ];
+
+  const plans = [
+    { ...PLAN_DEFINITIONS.trial, highlight: true },
+    PLAN_DEFINITIONS.monthly,
+    PLAN_DEFINITIONS.quarterly,
+    PLAN_DEFINITIONS.semi_annual,
+    PLAN_DEFINITIONS.annual,
   ];
 
   return (
-    <div style={{ background: 'var(--pt-black)', minHeight: '100vh' }}>
-      {/* Navbar */}
-      <nav style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-        background: 'rgba(13,13,13,0.85)', backdropFilter: 'blur(16px)',
-        borderBottom: '1px solid rgba(245,197,24,0.1)',
-        padding: '0 2rem', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <span style={{ fontSize: '1.8rem', filter: 'drop-shadow(0 0 8px rgba(245,197,24,0.4))' }}>⚡</span>
-          <span style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--pt-gold)', letterSpacing: '-0.5px' }}>Power Time</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <Link href={`/${switchLocale}`} style={{ color: 'var(--pt-gray-400)', fontSize: '0.85rem', padding: '6px 14px', borderRadius: '8px', border: '1px solid var(--glass-border)', transition: 'all 0.2s' }}>
-            {isAr ? 'English' : 'عربي'}
-          </Link>
-          <Link href={`/${locale}/login`} style={{
-            background: 'linear-gradient(135deg, var(--pt-gold), var(--pt-gold-dim))', color: '#0D0D0D',
-            padding: '8px 24px', borderRadius: '10px', fontWeight: 700, fontSize: '0.9rem',
-            boxShadow: '0 4px 20px rgba(245,197,24,0.2)', transition: 'all 0.3s',
-          }}>
-            {isAr ? 'تسجيل الدخول' : 'Sign In'}
-          </Link>
+    <div className={s.landing}>
+      {/* === Navbar === */}
+      <nav className={`${s.nav} ${scrolled ? s.navScrolled : ''}`}>
+        <Link href={`/${locale}`} className={s.navLogo}>
+          <span className={s.navLogoIcon}>⚡</span>
+          <span className={s.navLogoText}>Power Time</span>
+        </Link>
+        <div className={s.navLinks}>
+          <a href="#features" className={s.navLink}>{isAr ? 'المميزات' : 'Features'}</a>
+          <a href="#showcase" className={s.navLink}>{isAr ? 'النظام' : 'System'}</a>
+          <a href="#plans" className={s.navLink}>{isAr ? 'الأسعار' : 'Pricing'}</a>
+          <Link href={`/${sw}`} className={s.navLink}>{isAr ? 'English' : 'عربي'}</Link>
+          <Link href={`/${locale}/login`} className={s.navLink}>{isAr ? 'دخول' : 'Sign In'}</Link>
+          <Link href={`/${locale}/onboarding`} className={s.navCta}>{isAr ? 'ابدأ مجاناً' : 'Start Free'}</Link>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <section style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        position: 'relative', overflow: 'hidden', paddingTop: 64,
-      }}>
-        {/* Background effects */}
-        <div style={{
-          position: 'absolute', top: '20%', left: '50%', transform: 'translate(-50%, -50%)',
-          width: '600px', height: '600px', borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(245,197,24,0.08) 0%, transparent 70%)',
-          filter: 'blur(60px)', pointerEvents: 'none',
-        }} />
-        <div style={{
-          position: 'absolute', inset: 0,
-          backgroundImage: 'radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px)',
-          backgroundSize: '30px 30px', pointerEvents: 'none',
-        }} />
-
-        <div style={{ textAlign: 'center', maxWidth: '800px', padding: '2rem', position: 'relative', zIndex: 2 }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 20px',
-            background: 'rgba(245,197,24,0.08)', border: '1px solid rgba(245,197,24,0.2)',
-            borderRadius: '100px', marginBottom: '2rem', fontSize: '0.85rem', color: 'var(--pt-gold)',
-          }}>
-            <span>⚡</span> {isAr ? 'نظام إدارة الجيم الأكثر تقدماً' : 'The Most Advanced Gym Management System'}
+      {/* === Hero === */}
+      <section className={s.hero}>
+        <div className={s.heroGlow} />
+        <div className={s.heroGrid} />
+        <div className={s.heroContent}>
+          <div className={s.heroText}>
+            <div className={s.heroBadge}>
+              ⚡ {isAr ? 'نظام إدارة الأندية #1 في الشرق الأوسط' : '#1 Gym Management System in the Middle East'}
+            </div>
+            <h1 className={s.heroTitle}>
+              <span className={s.heroTitleGold}>Power Time</span>
+              <span className={s.heroTitleWhite}>{isAr ? 'أكتر من مجرد جيم' : 'More Than a Gym'}</span>
+            </h1>
+            <p className={s.heroDesc}>
+              {isAr
+                ? 'نظام إدارة سحابي متكامل للأندية والجيمات — إدارة العضويات، الاشتراكات، المدربين، السبا، المالية، والحضور بكود QR. كل ما تحتاجه لإدارة ناديك باحترافية عالمية.'
+                : 'All-in-one cloud gym management — memberships, subscriptions, trainers, spa, finance & QR attendance. Everything you need to run your gym with world-class professionalism.'}
+            </p>
+            <div className={s.heroBtns}>
+              <Link href={`/${locale}/onboarding`} className={s.heroBtn}>
+                {isAr ? '🚀 ابدأ 3 شهور مجاناً' : '🚀 Start 3 Months Free'}
+              </Link>
+              <a href="#showcase" className={s.heroBtnOutline}>
+                {isAr ? 'شاهد النظام' : 'See the System'} ↓
+              </a>
+            </div>
+            <div className={s.heroStats}>
+              {stats.map((st, i) => (
+                <div key={i} className={s.heroStat}>
+                  <div className={s.heroStatVal}>{st.v}</div>
+                  <div className={s.heroStatLabel}>{st.l}</div>
+                </div>
+              ))}
+            </div>
           </div>
-
-          <h1 style={{
-            fontSize: 'clamp(2.5rem, 6vw, 4rem)', fontWeight: 900, lineHeight: 1.1,
-            marginBottom: '1.5rem', color: 'var(--pt-white)',
-          }}>
-            <span style={{ color: 'var(--pt-gold)' }}>Power Time</span>
-            <br />
-            {isAr ? 'أكتر من مجرد جيم' : 'More than a Gym'}
-          </h1>
-
-          <p style={{
-            fontSize: '1.15rem', color: 'var(--pt-gray-400)', lineHeight: 1.8,
-            maxWidth: '600px', margin: '0 auto 2.5rem',
-          }}>
-            {isAr
-              ? 'نظام إدارة متكامل للجيم — إدارة العضويات، الاشتراكات، السبا، التدريب، المالية، والحضور بكود QR. كل ما تحتاجه في مكان واحد.'
-              : 'Complete gym management system — memberships, subscriptions, spa, training, finance, and QR attendance. Everything you need in one place.'}
-          </p>
-
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href={`/${locale}/login`} style={{
-              background: 'linear-gradient(135deg, var(--pt-gold), #E6B800)', color: '#0D0D0D',
-              padding: '14px 40px', borderRadius: '14px', fontWeight: 800, fontSize: '1.05rem',
-              boxShadow: '0 8px 30px rgba(245,197,24,0.25)', display: 'inline-flex', alignItems: 'center', gap: '8px',
-              transition: 'all 0.3s', textDecoration: 'none',
-            }}>
-              {isAr ? 'ابدأ الآن' : 'Get Started'} →
-            </Link>
-            <a href="#features" style={{
-              padding: '14px 40px', borderRadius: '14px', fontWeight: 600, fontSize: '1.05rem',
-              border: '1px solid rgba(245,197,24,0.3)', color: 'var(--pt-gold)', display: 'inline-flex',
-              alignItems: 'center', gap: '8px', transition: 'all 0.3s', textDecoration: 'none',
-            }}>
-              {isAr ? 'اكتشف المميزات' : 'Explore Features'} ↓
-            </a>
-          </div>
-
-          {/* Stats Row */}
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem',
-            marginTop: '4rem', maxWidth: '700px', marginInline: 'auto',
-          }}>
-            {stats.map((s, i) => (
-              <div key={i} style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--pt-gold)', lineHeight: 1.2 }}>{s.value}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--pt-gray-500)', marginTop: '4px' }}>{s.label}</div>
-              </div>
-            ))}
+          <div className={s.heroImage}>
+            <div className={s.heroImgGlow} />
+            <Image src="/images/High-tech gym dashboard visualization.png" alt="Power Time Dashboard" width={600} height={600} className={s.heroImg} priority />
           </div>
         </div>
       </section>
 
-      {/* Features Section */}
-      <section id="features" style={{ padding: '6rem 2rem', maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
-          <span style={{
-            fontSize: '0.8rem', fontWeight: 700, color: 'var(--pt-gold)', textTransform: 'uppercase',
-            letterSpacing: '3px', display: 'block', marginBottom: '0.75rem',
-          }}>
-            {isAr ? 'المميزات' : 'FEATURES'}
-          </span>
-          <h2 style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '1rem' }}>
-            {isAr ? 'كل ما يحتاجه جيمك' : 'Everything Your Gym Needs'}
-          </h2>
-          <p style={{ color: 'var(--pt-gray-400)', maxWidth: '500px', margin: '0 auto', fontSize: '1.05rem' }}>
-            {isAr ? 'نظام متكامل يغطي كل جوانب إدارة الجيم الحديث' : 'An integrated system covering all aspects of modern gym management'}
-          </p>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.5rem' }}>
+      {/* === Features === */}
+      <section id="features" className={s.section}>
+        <span className={s.sectionTag}>{isAr ? 'المميزات' : 'FEATURES'}</span>
+        <h2 className={s.sectionTitle}>{isAr ? 'كل ما يحتاجه ناديك في مكان واحد' : 'Everything Your Gym Needs in One Place'}</h2>
+        <p className={s.sectionDesc}>{isAr ? 'نظام متكامل يغطي كل جوانب إدارة الأندية الحديثة — من العضويات حتى الذكاء الاصطناعي.' : 'A complete system covering every aspect of modern gym management — from memberships to AI.'}</p>
+        <div className={s.featuresGrid}>
           {features.map((f, i) => (
-            <div key={i} style={{
-              background: 'var(--pt-dark)', border: '1px solid var(--glass-border)',
-              borderRadius: '16px', padding: '2rem', transition: 'all 0.3s',
-              position: 'relative', overflow: 'hidden',
-            }}>
-              <div style={{
-                position: 'absolute', top: 0, insetInlineStart: 0, width: '3px', height: '100%',
-                background: 'var(--pt-gold)', borderRadius: '0 4px 4px 0', opacity: 0.5,
-              }} />
-              <div style={{
-                width: 52, height: 52, borderRadius: '14px', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', fontSize: '1.6rem',
-                background: 'var(--pt-gold-glow)', marginBottom: '1rem',
-              }}>
-                {f.icon}
+            <div key={i} className={s.featureCard}>
+              <div className={s.featureIcon}>{f.icon}</div>
+              <div>
+                <h3 className={s.featureTitle}>{f.t}</h3>
+                <p className={s.featureDesc}>{f.d}</p>
               </div>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.5rem' }}>{f.title}</h3>
-              <p style={{ fontSize: '0.88rem', color: 'var(--pt-gray-400)', lineHeight: 1.7 }}>{f.desc}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Plans Section */}
-      <section id="plans" style={{
-        padding: '6rem 2rem', background: 'linear-gradient(180deg, transparent, rgba(245,197,24,0.02), transparent)',
-      }}>
-        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
-            <span style={{
-              fontSize: '0.8rem', fontWeight: 700, color: 'var(--pt-gold)', textTransform: 'uppercase',
-              letterSpacing: '3px', display: 'block', marginBottom: '0.75rem',
-            }}>
-              {isAr ? 'الخطط' : 'PLANS'}
-            </span>
-            <h2 style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '1rem' }}>
-              {isAr ? 'اختر خطتك المناسبة' : 'Choose Your Plan'}
-            </h2>
-          </div>
+      {/* === Showcase === */}
+      <section id="showcase" className={s.showcase}>
+        <div className={s.showcaseInner}>
+          <span className={s.sectionTag}>{isAr ? 'داخل النظام' : 'INSIDE THE SYSTEM'}</span>
+          <h2 className={s.sectionTitle}>{isAr ? 'شاهد القوة بنفسك' : 'See the Power Yourself'}</h2>
+          <p className={s.sectionDesc}>{isAr ? 'نظام صُمم ليمنحك السيطرة الكاملة على كل تفصيلة في ناديك.' : 'A system designed to give you complete control over every detail of your gym.'}</p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
-            {plans.map((plan, i) => (
-              <div key={i} style={{
-                background: 'var(--pt-dark)', border: plan.popular ? '2px solid var(--pt-gold)' : '1px solid var(--glass-border)',
-                borderRadius: '20px', padding: '2.5rem 2rem', position: 'relative', overflow: 'hidden',
-                boxShadow: plan.popular ? '0 8px 40px rgba(245,197,24,0.15)' : 'none',
-                transform: plan.popular ? 'scale(1.03)' : 'none',
-              }}>
-                {plan.popular && (
-                  <div style={{
-                    position: 'absolute', top: 16, insetInlineEnd: 16, background: 'var(--pt-gold)',
-                    color: '#0D0D0D', padding: '4px 14px', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 800,
-                  }}>
-                    {isAr ? '⭐ الأكثر طلباً' : '⭐ Most Popular'}
-                  </div>
-                )}
-                <div style={{
-                  display: 'inline-block', padding: '4px 14px', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 700,
-                  background: plan.type === 'diamond' ? 'linear-gradient(135deg, rgba(156,39,176,0.15), rgba(0,176,255,0.15))' : 'var(--pt-gold-glow)',
-                  color: plan.type === 'diamond' ? '#CE93D8' : 'var(--pt-gold)',
-                  border: plan.type === 'diamond' ? '1px solid rgba(156,39,176,0.3)' : '1px solid rgba(245,197,24,0.3)',
-                  marginBottom: '1rem',
-                }}>
-                  {plan.type === 'diamond' ? '💎' : '🥇'} {plan.name}
-                </div>
-                <div style={{ margin: '1rem 0' }}>
-                  <span style={{ fontSize: '3rem', fontWeight: 900, color: 'var(--pt-white)' }}>{plan.price}</span>
-                  <span style={{ fontSize: '0.9rem', color: 'var(--pt-gray-500)', marginInlineStart: '4px' }}>{t('common.egp')}/{plan.duration}</span>
-                </div>
-                <ul style={{ listStyle: 'none', padding: 0, margin: '1.5rem 0' }}>
-                  {plan.features.map((f, j) => (
-                    <li key={j} style={{
-                      padding: '8px 0', fontSize: '0.9rem', color: 'var(--pt-gray-300)',
-                      display: 'flex', alignItems: 'center', gap: '8px',
-                      borderBottom: j < plan.features.length - 1 ? '1px solid var(--glass-border)' : 'none',
-                    }}>
-                      <span style={{ color: 'var(--pt-success)' }}>✓</span> {f}
+          {showcases.map((sc, i) => (
+            <div key={i} className={`${s.showcaseRow} ${sc.reverse ? s.showcaseRowReverse : ''}`}>
+              <div>
+                <div className={s.showcaseTag}>⚡ {sc.tag}</div>
+                <h3 className={s.showcaseTitle}>{sc.title}</h3>
+                <p className={s.showcaseDesc}>{sc.desc}</p>
+                <ul className={s.showcaseList}>
+                  {sc.list.map((item, j) => (
+                    <li key={j} className={s.showcaseListItem}>
+                      <span className={s.showcaseCheck}>✓</span> {item}
                     </li>
                   ))}
                 </ul>
-                <Link href={`/${locale}/login`} style={{
-                  display: 'block', textAlign: 'center', padding: '12px', borderRadius: '12px',
-                  fontWeight: 700, textDecoration: 'none', transition: 'all 0.3s',
-                  background: plan.popular ? 'linear-gradient(135deg, var(--pt-gold), var(--pt-gold-dim))' : 'transparent',
-                  color: plan.popular ? '#0D0D0D' : 'var(--pt-gold)',
-                  border: plan.popular ? 'none' : '1px solid var(--pt-gold)',
-                }}>
-                  {isAr ? 'اشترك الآن' : 'Subscribe Now'}
+              </div>
+              <Image src={sc.img} alt={sc.tag} width={560} height={560} className={s.showcaseImg} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* === Plans === */}
+      <section id="plans" className={s.plans}>
+        <div className={s.plansInner}>
+          <span className={s.sectionTag}>{isAr ? 'خطط الاشتراك' : 'PRICING'}</span>
+          <h2 className={s.sectionTitle}>{isAr ? 'ابدأ مجاناً، وتوسّع حسب احتياجك' : 'Start Free, Scale as You Grow'}</h2>
+          <p className={s.sectionDesc}>{isAr ? 'خطط مرنة تناسب كل أحجام الأندية — من ناديك الصغير حتى سلسلة أندية كبيرة.' : 'Flexible plans for all gym sizes — from your small club to a large fitness chain.'}</p>
+          <div className={s.plansGrid}>
+            {plans.map((p) => (
+              <div key={p.id} className={`${s.planCard} ${p.id === 'quarterly' ? s.planPopular : ''}`}>
+                {p.id === 'quarterly' && <div className={s.planBadge}>{isAr ? '⭐ الأكثر طلباً' : '⭐ Most Popular'}</div>}
+                <div className={s.planName}>{p.name[locale] || p.name.ar}</div>
+                <div className={s.planPrice}>
+                  {p.price === 0 ? (isAr ? 'مجاناً' : 'Free') : p.price.toLocaleString()}
+                  {p.price > 0 && <span className={s.planPer}> {isAr ? 'ج.م' : 'EGP'}</span>}
+                </div>
+                <div className={s.planPer}>{p.durationDays} {isAr ? 'يوم' : 'days'}</div>
+                {p.discount && <div style={{ color: 'var(--pt-gold)', fontSize: '0.78rem', fontWeight: 700, marginTop: 6 }}>🎁 {isAr ? `خصم ${p.discount}%` : `${p.discount}% off`}</div>}
+                <ul className={s.planFeatures}>
+                  <li className={s.planFeature}><span className={s.showcaseCheck}>✓</span> 👥 {p.maxMembers === -1 ? '♾' : p.maxMembers} {isAr ? 'عضو' : 'members'}</li>
+                  <li className={s.planFeature}><span className={s.showcaseCheck}>✓</span> 🏋️ {p.maxTrainers === -1 ? '♾' : p.maxTrainers} {isAr ? 'مدرب' : 'trainers'}</li>
+                  <li className={s.planFeature}><span className={s.showcaseCheck}>{p.features?.ai_nutrition ? '✓' : '✗'}</span> 🤖 {isAr ? 'ذكاء اصطناعي' : 'AI Features'}</li>
+                  <li className={s.planFeature}><span className={s.showcaseCheck}>✓</span> 📊 {isAr ? 'تحليلات متقدمة' : 'Advanced Analytics'}</li>
+                </ul>
+                <Link href={`/${locale}/onboarding`} className={`${s.planBtn} ${p.id === 'quarterly' ? s.planBtnPrimary : ''}`}>
+                  {p.price === 0 ? (isAr ? 'ابدأ مجاناً' : 'Start Free') : (isAr ? 'اشترك الآن' : 'Subscribe Now')}
                 </Link>
               </div>
             ))}
@@ -288,47 +208,29 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section style={{
-        padding: '6rem 2rem', textAlign: 'center',
-        background: 'linear-gradient(180deg, transparent, rgba(245,197,24,0.04))',
-      }}>
-        <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+      {/* === CTA === */}
+      <section className={s.cta}>
+        <div className={s.ctaInner}>
           <span style={{ fontSize: '4rem', display: 'block', marginBottom: '1rem' }}>⚡</span>
-          <h2 style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '1rem' }}>
-            {isAr ? 'جاهز تطوّر جيمك؟' : 'Ready to Transform Your Gym?'}
-          </h2>
-          <p style={{ color: 'var(--pt-gray-400)', fontSize: '1.1rem', marginBottom: '2.5rem', lineHeight: 1.8 }}>
+          <h2 className={s.ctaTitle}>{isAr ? 'جاهز تطوّر ناديك؟' : 'Ready to Transform Your Gym?'}</h2>
+          <p className={s.ctaDesc}>
             {isAr
-              ? 'انضم لنظام Power Time وابدأ في إدارة جيمك باحترافية من اليوم'
-              : 'Join Power Time and start managing your gym professionally today'}
+              ? 'انضم لمئات الأندية التي تدير أعمالها بذكاء مع Power Time. ابدأ فترتك التجريبية المجانية لمدة 3 أشهر الآن — بدون بطاقة ائتمان.'
+              : 'Join hundreds of gyms managing their business smartly with Power Time. Start your free 3-month trial now — no credit card required.'}
           </p>
-          <Link href={`/${locale}/login`} style={{
-            background: 'linear-gradient(135deg, var(--pt-gold), #E6B800)', color: '#0D0D0D',
-            padding: '16px 48px', borderRadius: '14px', fontWeight: 800, fontSize: '1.1rem',
-            boxShadow: '0 8px 30px rgba(245,197,24,0.3)', display: 'inline-flex',
-            alignItems: 'center', gap: '10px', textDecoration: 'none', transition: 'all 0.3s',
-          }}>
-            {isAr ? 'ابدأ مجاناً' : 'Start Free'} →
+          <Link href={`/${locale}/onboarding`} className={s.heroBtn}>
+            {isAr ? '🚀 ابدأ مجاناً الآن' : '🚀 Start Free Now'} →
           </Link>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer style={{
-        padding: '3rem 2rem', borderTop: '1px solid var(--glass-border)',
-        textAlign: 'center',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-          <span style={{ fontSize: '1.5rem' }}>⚡</span>
-          <span style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--pt-gold)' }}>Power Time</span>
+      {/* === Footer === */}
+      <footer className={s.footer}>
+        <div className={s.footerBrand}>
+          <span className={s.footerLogo}>⚡</span>
+          <span className={s.footerName}>Power Time</span>
         </div>
-        <p style={{ color: 'var(--pt-gray-600)', fontSize: '0.85rem' }}>
-          © 2026 Power Time. {isAr ? 'جميع الحقوق محفوظة' : 'All rights reserved'}.
-        </p>
-        <p style={{ color: 'var(--pt-gray-700)', fontSize: '0.75rem', marginTop: '0.5rem' }}>
-          {isAr ? 'أكتر من مجرد جيم' : 'More than a Gym'} ⚡
-        </p>
+        <p className={s.footerCopy}>© 2026 Power Time. {isAr ? 'جميع الحقوق محفوظة' : 'All rights reserved'}.</p>
       </footer>
     </div>
   );

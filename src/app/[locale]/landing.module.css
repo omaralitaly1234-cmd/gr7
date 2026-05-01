@@ -44,12 +44,12 @@
 .burgerOpen2{opacity:0}
 .burgerOpen3{transform:rotate(-45deg) translate(5px,-5px);background:var(--gold)}
 
-/* Mobile Menu — fixed, use clip-path for smooth reveal */
-.mobileMenu{position:fixed;top:0;left:0;right:0;z-index:98;display:flex;flex-direction:column;background:rgba(6,6,8,.98);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);padding:72px 1.25rem 1.5rem;clip-path:inset(0 0 100% 0);transition:clip-path .4s cubic-bezier(.4,0,.2,1);pointer-events:none}
-.mobileMenuOpen{clip-path:inset(0 0 0 0);pointer-events:auto}
-.mobileLink{color:rgba(255,255,255,.7);font-size:1.05rem;padding:16px 18px;border-radius:12px;text-decoration:none;transition:all .2s;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.04);-webkit-tap-highlight-color:transparent}
+/* Mobile Menu — transform slide for max compatibility */
+.mobileMenu{position:fixed;top:0;left:0;right:0;bottom:0;z-index:98;display:flex;flex-direction:column;background:rgba(6,6,8,.98);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);padding:80px 1.5rem 2rem;transform:translateY(-100%);opacity:0;transition:transform .35s cubic-bezier(.4,0,.2,1),opacity .35s;pointer-events:none;overflow-y:auto}
+.mobileMenuOpen{transform:translateY(0);opacity:1;pointer-events:auto}
+.mobileLink{color:rgba(255,255,255,.7);font-size:1.1rem;padding:16px 18px;border-radius:14px;text-decoration:none;transition:all .15s;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.04);-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .mobileLink:hover,.mobileLink:active{color:var(--gold);background:rgba(245,197,24,.06)}
-.mobileCta{display:block;text-align:center;margin-top:.75rem;padding:16px;border-radius:14px;font-weight:700;font-size:1.05rem;text-decoration:none;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#0a0a0a;-webkit-tap-highlight-color:transparent}
+.mobileCta{display:block;text-align:center;margin-top:1rem;padding:16px;border-radius:14px;font-weight:700;font-size:1.1rem;text-decoration:none;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#0a0a0a;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 
 /* Hero */
 .hero{min-height:100vh;display:flex;align-items:center;position:relative;padding:100px 3rem 60px;overflow:hidden}

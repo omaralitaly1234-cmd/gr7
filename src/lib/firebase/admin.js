@@ -17,14 +17,32 @@ function getAdmin() {
   if (!firebaseAdmin.apps.length) {
     const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-    // Handle all possible private key formats from env/secrets
-    let privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY || '';
-    // Remove surrounding quotes if present
-    if ((privateKey.startsWith('"') && privateKey.endsWith('"')) || (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
-      privateKey = privateKey.slice(1, -1);
+    let rawKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY || '';
+
+    // Debug: log key format (first 40 chars only for security)
+    console.log('[Admin SDK] Key starts with:', rawKey.substring(0, 40));
+    console.log('[Admin SDK] Key length:', rawKey.length);
+
+    // Strategy 1: If it looks like a JSON string (starts with "), parse it
+    if (rawKey.startsWith('"')) {
+      try { rawKey = JSON.parse(rawKey); } catch (e) {
+        // Remove quotes manually
+        rawKey = rawKey.replace(/^"|"$/g, '');
+      }
+    } else if (rawKey.startsWith("'")) {
+      rawKey = rawKey.replace(/^'|'$/g, '');
     }
-    // Replace literal \n with actual newlines
-    privateKey = privateKey.replace(/\\n/g, '\n');
+
+    // Strategy 2: Replace all forms of escaped newlines with real newlines
+    let privateKey = rawKey
+      .replace(/\\\\n/g, '\n')   // \\n -> newline
+      .replace(/\\n/g, '\n');    // \n  -> newline
+
+    // Strategy 3: Verify PEM structure
+    if (!privateKey.includes('-----BEGIN')) {
+      console.error('[Admin SDK] Private key does not contain PEM header!');
+      console.error('[Admin SDK] First 60 chars:', privateKey.substring(0, 60));
+    }
 
     if (!projectId || !clientEmail || !privateKey) {
       console.error('[Admin SDK] Missing environment variables');

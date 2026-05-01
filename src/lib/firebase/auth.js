@@ -13,12 +13,17 @@ import { auth, db } from './config';
 export async function signIn(email, password) {
   try {
     const result = await signInWithEmailAndPassword(auth, email, password);
-    // Update last login
-    await setDoc(doc(db, 'users', result.user.uid), {
-      lastLogin: serverTimestamp(),
-    }, { merge: true });
+    // Update last login (fire-and-forget — don't block login if this fails)
+    try {
+      await setDoc(doc(db, 'users', result.user.uid), {
+        lastLogin: serverTimestamp(),
+      }, { merge: true });
+    } catch (e) {
+      console.warn('[Auth] lastLogin update failed:', e.message);
+    }
     return { user: result.user, error: null };
   } catch (error) {
+    console.error('[Auth] signIn error:', error.code, error.message);
     return { user: null, error: getAuthErrorMessage(error.code) };
   }
 }

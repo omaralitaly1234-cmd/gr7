@@ -31,19 +31,24 @@ export default function LoginPage({ params }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!email || !password) return;
     setError('');
     setLoading(true);
 
     try {
       const result = await signIn(email, password);
       if (result.error) {
-        setError(result.error[locale] || result.error.ar);
-      } else {
-        // Redirect based on role
+        setError(result.error[locale] || result.error.ar || result.error.en || 'Login failed');
+        setLoading(false);
+        return;
+      }
+
+      // Redirect based on role — graceful fallback
+      try {
         const { getUserRole, getUserData } = await import('@/lib/firebase/auth');
         const role = await getUserRole(result.user.uid);
         const { data: uData } = await getUserData(result.user.uid);
-        
+
         if (role === 'superadmin' || uData?.superAdmin === true) {
           router.push(`/${locale}/super-admin/dashboard`);
         } else if (role === 'admin') {
@@ -53,10 +58,14 @@ export default function LoginPage({ params }) {
         } else {
           router.push(`/${locale}/client/dashboard`);
         }
+      } catch (roleErr) {
+        console.error('[Login] Role detection failed:', roleErr);
+        // Fallback — still redirect to client dashboard
+        router.push(`/${locale}/client/dashboard`);
       }
     } catch (err) {
-      setError(locale === 'ar' ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
-    } finally {
+      console.error('[Login] Unexpected error:', err);
+      setError(locale === 'ar' ? 'حدث خطأ غير متوقع. تأكد من اتصال الإنترنت' : 'An unexpected error occurred. Check your internet connection');
       setLoading(false);
     }
   };

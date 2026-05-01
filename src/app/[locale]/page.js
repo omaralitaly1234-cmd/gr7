@@ -30,6 +30,21 @@ export default function LandingPage() {
 
   useEffect(() => { const h = () => setScrolled(window.scrollY > 40); window.addEventListener('scroll', h); setIsDay(new Date().getHours() >= 6 && new Date().getHours() < 18); return () => window.removeEventListener('scroll', h); }, []);
 
+  // Lock body scroll when menu is open
+  useEffect(() => {
+    if (menuOpen) { document.body.style.overflow = 'hidden'; }
+    else { document.body.style.overflow = ''; }
+    return () => { document.body.style.overflow = ''; };
+  }, [menuOpen]);
+
+  // Close menu on scroll
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(false);
+    window.addEventListener('scroll', close);
+    return () => window.removeEventListener('scroll', close);
+  }, [menuOpen]);
+
   const features = [
     { icon: '👥', t: isAr ? 'إدارة العضويات الذكية' : 'Smart Membership', d: isAr ? 'نظام شامل لإدارة آلاف الأعضاء مع ملفات تعريف مفصلة، تجديد تلقائي، وفلاتر بحث متقدمة.' : 'Complete system managing thousands of members with profiles, auto-renewal, and advanced filters.' },
     { icon: '💳', t: isAr ? 'اشتراكات مرنة' : 'Flexible Plans', d: isAr ? 'خطط ذهبية وماسية مع تجميد ذكي، تجديد تلقائي، وتتبع الحصص لكل عضو بدقة.' : 'Gold & Diamond plans with smart freeze, auto-renewal, and precise session tracking.' },

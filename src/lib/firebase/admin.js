@@ -26,6 +26,7 @@ function getAdmin() {
       // Production on Firebase App Hosting / Google Cloud — use ADC
       console.log('[Admin SDK] Initializing with Application Default Credentials (ADC)');
       firebaseAdmin.initializeApp({
+        credential: firebaseAdmin.credential.applicationDefault(),
         projectId,
         storageBucket: `${projectId}.firebasestorage.app`,
       });

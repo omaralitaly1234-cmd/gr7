@@ -17,7 +17,14 @@ function getAdmin() {
   if (!firebaseAdmin.apps.length) {
     const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-    const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    // Handle all possible private key formats from env/secrets
+    let privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY || '';
+    // Remove surrounding quotes if present
+    if ((privateKey.startsWith('"') && privateKey.endsWith('"')) || (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
+      privateKey = privateKey.slice(1, -1);
+    }
+    // Replace literal \n with actual newlines
+    privateKey = privateKey.replace(/\\n/g, '\n');
 
     if (!projectId || !clientEmail || !privateKey) {
       console.error('[Admin SDK] Missing environment variables');

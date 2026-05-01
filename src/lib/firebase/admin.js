@@ -15,48 +15,39 @@ function getAdmin() {
   const firebaseAdmin = require('firebase-admin');
 
   if (!firebaseAdmin.apps.length) {
-    const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
-    const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-    let rawKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY || '';
+    const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
-    // Debug: log key format (first 40 chars only for security)
-    console.log('[Admin SDK] Key starts with:', rawKey.substring(0, 40));
-    console.log('[Admin SDK] Key length:', rawKey.length);
+    // Strategy: Use Application Default Credentials (ADC) on Google Cloud
+    // Fall back to service account cert only for local development
+    const hasExplicitKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY && process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+    const isGoogleCloud = process.env.K_SERVICE || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT;
 
-    // Strategy 1: If it looks like a JSON string (starts with "), parse it
-    if (rawKey.startsWith('"')) {
-      try { rawKey = JSON.parse(rawKey); } catch (e) {
-        // Remove quotes manually
-        rawKey = rawKey.replace(/^"|"$/g, '');
-      }
-    } else if (rawKey.startsWith("'")) {
-      rawKey = rawKey.replace(/^'|'$/g, '');
-    }
-
-    // Strategy 2: Replace all forms of escaped newlines with real newlines
-    let privateKey = rawKey
-      .replace(/\\\\n/g, '\n')   // \\n -> newline
-      .replace(/\\n/g, '\n');    // \n  -> newline
-
-    // Strategy 3: Verify PEM structure
-    if (!privateKey.includes('-----BEGIN')) {
-      console.error('[Admin SDK] Private key does not contain PEM header!');
-      console.error('[Admin SDK] First 60 chars:', privateKey.substring(0, 60));
-    }
-
-    if (!projectId || !clientEmail || !privateKey) {
-      console.error('[Admin SDK] Missing environment variables');
-      return null;
-    }
-
-    firebaseAdmin.initializeApp({
-      credential: firebaseAdmin.credential.cert({
+    if (!hasExplicitKey || isGoogleCloud) {
+      // Production on Firebase App Hosting / Google Cloud — use ADC
+      console.log('[Admin SDK] Initializing with Application Default Credentials (ADC)');
+      firebaseAdmin.initializeApp({
         projectId,
-        clientEmail,
-        privateKey,
-      }),
-      storageBucket: `${projectId}.firebasestorage.app`,
-    });
+        storageBucket: `${projectId}.firebasestorage.app`,
+      });
+    } else {
+      // Local development — use service account cert
+      console.log('[Admin SDK] Initializing with service account cert (local dev)');
+      const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+      let rawKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY || '';
+
+      // Parse key: handle JSON strings, quoted values, escaped newlines
+      if (rawKey.startsWith('"')) {
+        try { rawKey = JSON.parse(rawKey); } catch (e) {
+          rawKey = rawKey.replace(/^"|"$/g, '');
+        }
+      }
+      const privateKey = rawKey.replace(/\\n/g, '\n');
+
+      firebaseAdmin.initializeApp({
+        credential: firebaseAdmin.credential.cert({ projectId, clientEmail, privateKey }),
+        storageBucket: `${projectId}.firebasestorage.app`,
+      });
+    }
   }
 
   admin = firebaseAdmin;

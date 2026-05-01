@@ -375,6 +375,21 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
+              {error && (
+                <div style={{
+                  background: 'rgba(239,68,68,.1)',
+                  border: '1px solid rgba(239,68,68,.3)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: 'var(--space-3) var(--space-4)',
+                  marginBottom: 'var(--space-4)',
+                  color: '#ef4444',
+                  fontSize: 'var(--font-size-sm)',
+                  textAlign: 'center',
+                }}>
+                  ⚠️ {error}
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
                 <button type="button" className="btn btn-ghost" onClick={() => setStep(1)} style={{ flex: 1 }}>
                   {locale === 'ar' ? '← رجوع' : '← Back'}

@@ -158,6 +158,8 @@
     "title": "Member Management",
     "addNew": "Add New Member",
     "totalMembers": "Total Members",
+    "totalVisits": "Total Visits",
+    "fitnessGoal": "Fitness Goal",
     "searchPlaceholder": "Search by name, phone, or ID...",
     "memberId": "Member ID",
     "phone": "Phone",

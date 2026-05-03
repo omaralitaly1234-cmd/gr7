@@ -11,44 +11,54 @@ let adminMessaging;
 function getAdmin() {
   if (admin) return admin;
 
-  // Dynamic import to avoid client-side bundling
   const firebaseAdmin = require('firebase-admin');
 
   if (!firebaseAdmin.apps.length) {
-    const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+    let credential;
+    let projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'gr7-system';
 
-    // Strategy: Use Application Default Credentials (ADC) on Google Cloud
-    // Fall back to service account cert only for local development
-    const hasExplicitKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY && process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-    const isGoogleCloud = process.env.K_SERVICE || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT;
-
-    if (!hasExplicitKey || isGoogleCloud) {
-      // Production on Firebase App Hosting / Google Cloud — use ADC
-      console.log('[Admin SDK] Initializing with Application Default Credentials (ADC)');
-      firebaseAdmin.initializeApp({
-        credential: firebaseAdmin.credential.applicationDefault(),
-        projectId,
-        storageBucket: `${projectId}.firebasestorage.app`,
-      });
-    } else {
-      // Local development — use service account cert
-      console.log('[Admin SDK] Initializing with service account cert (local dev)');
-      const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-      let rawKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY || '';
-
-      // Parse key: handle JSON strings, quoted values, escaped newlines
-      if (rawKey.startsWith('"')) {
-        try { rawKey = JSON.parse(rawKey); } catch (e) {
-          rawKey = rawKey.replace(/^"|"$/g, '');
-        }
+    // Strategy 1: Base64-encoded full service account JSON (most reliable)
+    const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
+    if (b64) {
+      try {
+        const json = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+        credential = firebaseAdmin.credential.cert(json);
+        projectId = json.project_id || projectId;
+        console.log('[Admin SDK] Initialized from base64 service account');
+      } catch (e) {
+        console.error('[Admin SDK] Failed to parse base64 key:', e.message);
       }
-      const privateKey = rawKey.replace(/\\n/g, '\n');
-
-      firebaseAdmin.initializeApp({
-        credential: firebaseAdmin.credential.cert({ projectId, clientEmail, privateKey }),
-        storageBucket: `${projectId}.firebasestorage.app`,
-      });
     }
+
+    // Strategy 2: Individual env vars (local dev with .env.local)
+    if (!credential) {
+      const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+      const rawKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY || '';
+      if (clientEmail && rawKey) {
+        let pk = rawKey;
+        if (pk.startsWith('"')) { try { pk = JSON.parse(pk); } catch(e) { pk = pk.replace(/^"|"$/g, ''); } }
+        pk = pk.replace(/\\n/g, '\n');
+        credential = firebaseAdmin.credential.cert({ projectId, clientEmail, privateKey: pk });
+        console.log('[Admin SDK] Initialized from individual env vars');
+      }
+    }
+
+    // Strategy 3: Application Default Credentials (Google Cloud)
+    if (!credential) {
+      try {
+        credential = firebaseAdmin.credential.applicationDefault();
+        console.log('[Admin SDK] Initialized with ADC');
+      } catch (e) {
+        console.error('[Admin SDK] ADC failed:', e.message);
+        return null;
+      }
+    }
+
+    firebaseAdmin.initializeApp({
+      credential,
+      projectId,
+      storageBucket: `${projectId}.firebasestorage.app`,
+    });
   }
 
   admin = firebaseAdmin;

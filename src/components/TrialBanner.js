@@ -30,19 +30,17 @@ export default function TrialBanner() {
         fontWeight: 600,
         zIndex: 100,
         position: 'relative',
-        animation: 'pulse 2s ease-in-out infinite',
+        flexWrap: 'wrap',
       }}>
         <span>⛔</span>
         <span>
           {locale === 'ar'
-            ? 'انتهت فترتك التجريبية المجانية. اشترك الآن لمتابعة استخدام النظام.'
-            : 'Your free trial has expired. Subscribe now to continue using the system.'
+            ? 'انتهت فترتك التجريبية المجانية. قم بترقية خطتك لمتابعة استخدام النظام بجميع المميزات.'
+            : 'Your free trial has ended. Upgrade your plan to continue using the system with all features.'
           }
         </span>
         <a
-          href="https://wa.me/01000000000"
-          target="_blank"
-          rel="noopener noreferrer"
+          href={`/${locale}/onboarding`}
           style={{
             background: 'rgba(255,255,255,0.2)',
             color: 'white',
@@ -57,7 +55,7 @@ export default function TrialBanner() {
           onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.35)'}
           onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
         >
-          {locale === 'ar' ? 'اشترك الآن ←' : 'Subscribe Now →'}
+          {locale === 'ar' ? '💎 ترقية الخطة' : '💎 Upgrade Plan'}
         </a>
       </div>
     );

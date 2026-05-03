@@ -54,8 +54,9 @@ export function TenantProvider({ children, tenantId: propTenantId }) {
   // Is on trial
   const isTrial = currentPlan === 'trial' && trialStatus.isTrialActive;
 
-  // Is expired
-  const isExpired = tenantData?.status === 'expired' || (!trialStatus.isTrialActive && currentPlan === 'trial');
+  // Is expired — only mark expired if we have full data AND it's confirmed expired
+  const isExpired = tenantData?.status === 'expired' || 
+    (tenantData?.subscription?.plan === 'trial' && tenantData?.subscription?.trialEndDate && !trialStatus.isTrialActive);
 
   // Is suspended
   const isSuspended = tenantData?.status === 'suspended';

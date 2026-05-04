@@ -31,7 +31,7 @@ export default function LoginPage({ params }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email || !password) return;
+    if (!email || !password || loading) return;
     setError('');
     setLoading(true);
 
@@ -43,29 +43,37 @@ export default function LoginPage({ params }) {
         return;
       }
 
-      // Redirect based on role — graceful fallback
+      if (!result.user) {
+        setError(locale === 'ar' ? 'فشل تسجيل الدخول' : 'Login failed');
+        setLoading(false);
+        return;
+      }
+
+      // Get user role for redirect
+      let redirectPath = `/${locale}/client/dashboard`;
       try {
         const { getUserRole, getUserData } = await import('@/lib/firebase/auth');
-        const role = await getUserRole(result.user.uid);
-        const { data: uData } = await getUserData(result.user.uid);
+        const [role, userData] = await Promise.all([
+          getUserRole(result.user.uid),
+          getUserData(result.user.uid),
+        ]);
 
-        if (role === 'superadmin' || uData?.superAdmin === true) {
-          router.push(`/${locale}/super-admin/dashboard`);
+        if (role === 'superadmin' || userData?.data?.superAdmin === true) {
+          redirectPath = `/${locale}/super-admin/dashboard`;
         } else if (role === 'admin') {
-          router.push(`/${locale}/admin/dashboard`);
+          redirectPath = `/${locale}/admin/dashboard`;
         } else if (role === 'trainer') {
-          router.push(`/${locale}/trainer/dashboard`);
-        } else {
-          router.push(`/${locale}/client/dashboard`);
+          redirectPath = `/${locale}/trainer/dashboard`;
         }
       } catch (roleErr) {
-        console.error('[Login] Role detection failed:', roleErr);
-        // Fallback — still redirect to client dashboard
-        router.push(`/${locale}/client/dashboard`);
+        console.warn('[Login] Role detection failed, using default:', roleErr.message);
       }
+
+      // Use window.location for a clean redirect (avoids race condition with onAuthChange)
+      window.location.href = redirectPath;
     } catch (err) {
       console.error('[Login] Unexpected error:', err);
-      setError(locale === 'ar' ? 'حدث خطأ غير متوقع. تأكد من اتصال الإنترنت' : 'An unexpected error occurred. Check your internet connection');
+      setError(locale === 'ar' ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
       setLoading(false);
     }
   };

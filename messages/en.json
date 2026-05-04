@@ -2,6 +2,7 @@
   "common": {
     "search": "Search",
     "active": "Active",
+    "inactive": "Inactive",
     "expired": "Expired",
     "frozen": "Frozen",
     "cancel": "Cancel",
@@ -23,7 +24,22 @@
     "yes": "Yes",
     "no": "No",
     "print": "Print",
-    "tagline": "More Than Just a Gym"
+    "tagline": "More Than Just a Gym",
+    "success": "Done successfully",
+    "error": "An error occurred",
+    "status": "Status",
+    "actions": "Actions",
+    "notes": "Notes",
+    "date": "Date",
+    "day": "Day",
+    "today": "Today",
+    "thisWeek": "This Week",
+    "thisMonth": "This Month",
+    "gender": "Gender",
+    "name": "Name",
+    "details": "Details",
+    "total": "Total",
+    "amount": "Amount"
   },
   "auth": {
     "login": "Login",

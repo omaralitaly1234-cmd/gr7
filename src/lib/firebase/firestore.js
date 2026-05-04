@@ -110,6 +110,7 @@ export async function addDocument(collectionName, data) {
     });
     return { id: docRef.id, error: null };
   } catch (error) {
+    console.error(`[Firestore] addDocument(${collectionName}) failed:`, error.code, error.message);
     return { id: null, error: error.message };
   }
 }

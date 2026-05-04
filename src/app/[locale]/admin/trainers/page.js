@@ -47,14 +47,19 @@ export default function TrainersPage() {
     if (!tenantId || !form.name.ar) return;
     setSaving(true);
     try {
-      await addTenantDocument(tenantId, 'trainers', {
+      const result = await addTenantDocument(tenantId, 'trainers', {
         ...form, rating: 0, totalSessions: 0, monthlyEarnings: 0,
       });
+      if (result.error) {
+        console.error('[Trainers] Add failed:', result.error);
+        throw new Error(result.error);
+      }
       toast.success(t('common.success'));
       setShowForm(false);
       setForm({ name: { ar: '', en: '' }, phone: '', email: '', specialization: '', commission: 10, status: 'active', gender: 'male' });
       loadData();
     } catch (err) {
+      console.error('[Trainers] Error:', err);
       toast.error(t('common.error'));
     }
     setSaving(false);

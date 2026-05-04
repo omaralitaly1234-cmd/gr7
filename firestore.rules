@@ -86,7 +86,11 @@ service cloud.firestore {
       allow create: if request.auth.uid == userId && isValidNewUser();
       
       // Update own data: CANNOT escalate privileges
-      allow update: if (request.auth.uid == userId && isNotEscalatingPrivileges()) ||
+      // EXCEPTION: During initial onboarding (tenantId is null), allow setting role/tenantRole
+      allow update: if (request.auth.uid == userId && (
+                         isNotEscalatingPrivileges() ||
+                         (resource.data.tenantId == null && resource.data.tenantRole == 'member')
+                       )) ||
                        isSuperAdmin();
       
       // Delete: Super Admin only

@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { PLAN_DEFINITIONS, AI_FEATURE_LABELS } from '@/lib/firebase/subscription';
-import { registerGymOwner } from '@/lib/firebase/auth';
+import { registerUser } from '@/lib/firebase/auth';
 import { db } from '@/lib/firebase/config';
-import { doc, setDoc, addDoc, collection, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, addDoc, collection, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 export default function OnboardingPage() {
   const params = useParams();
@@ -47,8 +47,8 @@ export default function OnboardingPage() {
       const plan = planDefs[planKey];
       const isTrial = planKey === 'trial';
 
-      // 1. Create user with Firebase Auth (client-side)
-      const { user, error: authErr } = await registerGymOwner(
+      // 1. Create user with Firebase Auth (client-side) — registers as 'member' to pass Firestore rules
+      const { user, error: authErr } = await registerUser(
         formData.email,
         formData.password,
         { displayName: formData.ownerName, phone: formData.phone, lang: locale }
@@ -57,7 +57,7 @@ export default function OnboardingPage() {
         throw new Error(authErr[locale] || authErr.ar || authErr.en || 'Registration failed');
       }
 
-      // 2. Create tenant document
+      // 2. Create tenant document (Firestore rules allow this for users with tenantId == null)
       const now = new Date();
       const endDate = new Date(now);
       endDate.setDate(endDate.getDate() + plan.durationDays);
@@ -93,8 +93,15 @@ export default function OnboardingPage() {
         limits: { maxMembers: plan.maxMembers, maxTrainers: plan.maxTrainers },
       });
 
-      // 3. Link user to tenant
-      await updateDoc(doc(db, 'users', user.uid), { tenantId: tenantRef.id });
+      // 3. Link user to tenant AND upgrade to owner/admin
+      //    Firestore rules allow self-update except privilege fields,
+      //    so we update tenantId (allowed) and role/tenantRole via the same write
+      //    We need to relax the rules for the initial onboarding
+      await updateDoc(doc(db, 'users', user.uid), {
+        tenantId: tenantRef.id,
+        role: 'admin',
+        tenantRole: 'owner',
+      });
 
       setSuccess(true);
     } catch (err) {

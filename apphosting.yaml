@@ -35,8 +35,6 @@ env:
   # =============================================
   # Secrets (Server-side — Google Cloud Secret Manager)
   # =============================================
-  - variable: FIREBASE_SERVICE_ACCOUNT_B64
-    secret: FIREBASE_SERVICE_ACCOUNT_B64
   - variable: FIREBASE_ADMIN_PROJECT_ID
     secret: FIREBASE_ADMIN_PROJECT_ID
   - variable: FIREBASE_ADMIN_CLIENT_EMAIL

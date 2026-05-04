@@ -3,7 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { PLAN_DEFINITIONS, AI_FEATURE_LABELS } from '@/lib/firebase/subscription';
-import { signIn } from '@/lib/firebase/auth';
+import { registerGymOwner } from '@/lib/firebase/auth';
+import { db } from '@/lib/firebase/config';
+import { doc, setDoc, addDoc, collection, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 export default function OnboardingPage() {
   const params = useParams();
@@ -33,41 +35,71 @@ export default function OnboardingPage() {
     setLoading(true);
     setError('');
     try {
-      // Use server-side API for secure gym owner registration
-      const res = await fetch('/api/admin/onboarding', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-          displayName: formData.ownerName,
-          phone: formData.phone,
-          lang: locale,
-          gymName: formData.gymName,
-          gymNameAr: formData.gymName,
-          gymNameEn: formData.gymNameEn,
-          addressAr: formData.addressAr,
-          addressEn: formData.addressEn,
-          selectedPlan: selectedPlan,
-        }),
+      // Plan config
+      const planDefs = {
+        trial: { durationDays: 90, maxMembers: 100, maxTrainers: 3 },
+        monthly: { durationDays: 30, maxMembers: 300, maxTrainers: 5 },
+        quarterly: { durationDays: 90, maxMembers: 500, maxTrainers: 10 },
+        semi_annual: { durationDays: 180, maxMembers: 1000, maxTrainers: 20 },
+        annual: { durationDays: 365, maxMembers: -1, maxTrainers: -1 },
+      };
+      const planKey = selectedPlan && planDefs[selectedPlan] ? selectedPlan : 'trial';
+      const plan = planDefs[planKey];
+      const isTrial = planKey === 'trial';
+
+      // 1. Create user with Firebase Auth (client-side)
+      const { user, error: authErr } = await registerGymOwner(
+        formData.email,
+        formData.password,
+        { displayName: formData.ownerName, phone: formData.phone, lang: locale }
+      );
+      if (authErr) {
+        throw new Error(authErr[locale] || authErr.ar || authErr.en || 'Registration failed');
+      }
+
+      // 2. Create tenant document
+      const now = new Date();
+      const endDate = new Date(now);
+      endDate.setDate(endDate.getDate() + plan.durationDays);
+
+      const tenantRef = await addDoc(collection(db, 'tenants'), {
+        name: formData.gymName || '',
+        nameAr: formData.gymName || '',
+        nameEn: formData.gymNameEn || formData.gymName || '',
+        ownerEmail: formData.email,
+        ownerUid: user.uid,
+        phone: formData.phone || '',
+        address: { ar: formData.addressAr || '', en: formData.addressEn || '' },
+        logo: '',
+        status: isTrial ? 'trial' : 'pending_payment',
+        createdAt: serverTimestamp(),
+        subscription: {
+          plan: planKey,
+          startDate: Timestamp.fromDate(now),
+          endDate: Timestamp.fromDate(endDate),
+          trialStartDate: isTrial ? Timestamp.fromDate(now) : null,
+          trialEndDate: isTrial ? Timestamp.fromDate(endDate) : null,
+          autoRenew: !isTrial,
+          lastPaymentDate: null,
+          nextPaymentDate: isTrial ? null : Timestamp.fromDate(endDate),
+        },
+        features: {
+          ai_nutrition: !isTrial, ai_workout: !isTrial, ai_churn: !isTrial,
+          ai_sentiment: !isTrial, ai_pricing: !isTrial, ai_chatbot: !isTrial,
+          ai_body_analysis: !isTrial, ai_social: !isTrial,
+          advanced_analytics: true, spa_module: true, inventory_module: true,
+          hr_module: true, sms_notifications: true,
+        },
+        limits: { maxMembers: plan.maxMembers, maxTrainers: plan.maxTrainers },
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || 'Registration failed');
-      }
-
-      // Sign in the newly created user
-      const { error: signInError } = await signIn(formData.email, formData.password);
-      if (signInError) {
-        // User was created but sign-in failed — still show success
-        console.warn('[Onboarding] Auto sign-in failed:', signInError);
-      }
+      // 3. Link user to tenant
+      await updateDoc(doc(db, 'users', user.uid), { tenantId: tenantRef.id });
 
       setSuccess(true);
     } catch (err) {
-      setError(err.message);
+      console.error('[Onboarding] Error:', err);
+      setError(err.message || (locale === 'ar' ? 'حدث خطأ أثناء التسجيل' : 'Registration error'));
     } finally {
       setLoading(false);
     }

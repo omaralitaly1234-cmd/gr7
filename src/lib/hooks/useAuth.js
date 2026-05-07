@@ -12,24 +12,45 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthChange(async (firebaseUser) => {
+    let userDocUnsub = null;
+
+    const unsubscribe = onAuthChange((firebaseUser) => {
+      // Clean up previous user doc listener
+      if (userDocUnsub) {
+        userDocUnsub();
+        userDocUnsub = null;
+      }
+
       if (firebaseUser) {
-        try {
-          const { data } = await getUserData(firebaseUser.uid);
-          setUser(firebaseUser);
-          setUserData(data);
-        } catch (err) {
-          console.error('[Auth] Failed to get user data:', err);
-          setUser(firebaseUser);
+        setUser(firebaseUser);
+        // Use real-time listener so userData updates automatically
+        // (e.g., when tenantId/role are set during onboarding)
+        const { doc, onSnapshot } = require('firebase/firestore');
+        const { db } = require('@/lib/firebase/config');
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        userDocUnsub = onSnapshot(userRef, (snap) => {
+          if (snap.exists()) {
+            setUserData({ id: snap.id, ...snap.data() });
+          } else {
+            setUserData(null);
+          }
+          setLoading(false);
+        }, (err) => {
+          console.error('[Auth] User doc listener error:', err);
           setUserData(null);
-        }
+          setLoading(false);
+        });
       } else {
         setUser(null);
         setUserData(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribe();
+      if (userDocUnsub) userDocUnsub();
+    };
   }, []);
 
   const signIn = async (email, password) => {

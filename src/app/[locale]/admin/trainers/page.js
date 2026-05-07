@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments, addTenantDocument, updateTenantDocument, deleteTenantDocument } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
 
 export default function TrainersPage() {
@@ -13,6 +14,7 @@ export default function TrainersPage() {
   const locale = params?.locale || 'ar';
   const isAr = locale === 'ar';
   const { tenantId } = useTenant();
+  const { user } = useAuth();
 
   const [trainers, setTrainers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +22,7 @@ export default function TrainersPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    name: { ar: '', en: '' }, phone: '', email: '', specialization: '',
+    name: { ar: '', en: '' }, phone: '', email: '', password: '', specialization: '',
     commission: 10, status: 'active', gender: 'male',
   });
 
@@ -44,23 +46,40 @@ export default function TrainersPage() {
   };
 
   const handleSubmit = async () => {
-    if (!tenantId || !form.name.ar) return;
+    if (!tenantId || !form.name.ar || !form.email || !form.password) return;
+    if (form.password.length < 6) {
+      toast.error(isAr ? 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' : 'Password must be at least 6 characters');
+      return;
+    }
     setSaving(true);
     try {
-      const result = await addTenantDocument(tenantId, 'trainers', {
-        ...form, rating: 0, totalSessions: 0, monthlyEarnings: 0,
+      const res = await fetch('/api/admin/trainers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+          tenantId,
+          callerUid: user?.uid,
+          name: form.name,
+          phone: form.phone,
+          specialization: form.specialization,
+          commission: form.commission,
+          gender: form.gender,
+        }),
       });
-      if (result.error) {
-        console.error('[Trainers] Add failed:', result.error);
-        throw new Error(result.error);
+      const data = await res.json();
+      if (!res.ok) {
+        console.error('[Trainers] API error:', data);
+        throw new Error(data.message || 'Failed to create trainer');
       }
-      toast.success(t('common.success'));
+      toast.success(isAr ? 'تم إنشاء حساب المدرب بنجاح' : 'Trainer account created successfully');
       setShowForm(false);
-      setForm({ name: { ar: '', en: '' }, phone: '', email: '', specialization: '', commission: 10, status: 'active', gender: 'male' });
+      setForm({ name: { ar: '', en: '' }, phone: '', email: '', password: '', specialization: '', commission: 10, status: 'active', gender: 'male' });
       loadData();
     } catch (err) {
       console.error('[Trainers] Error:', err);
-      toast.error(t('common.error'));
+      toast.error(err.message || t('common.error'));
     }
     setSaving(false);
   };
@@ -203,6 +222,19 @@ export default function TrainersPage() {
               <button onClick={() => setShowForm(false)} style={{ fontSize: '1.2rem' }}>✕</button>
             </div>
             <div className="modal-body">
+              <div style={{ background: 'rgba(245,197,24,0.08)', border: '1px solid rgba(245,197,24,0.2)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', marginBottom: 'var(--space-4)', fontSize: 'var(--font-size-sm)', color: 'var(--pt-gold)' }}>
+                🔐 {isAr ? 'سيتم إنشاء حساب دخول للمدرب بالبريد وكلمة المرور أدناه' : 'A login account will be created for the trainer with the email & password below'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'البريد الإلكتروني' : 'Email'} *</label>
+                  <input className="form-input" dir="ltr" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="trainer@example.com" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'كلمة المرور' : 'Password'} *</label>
+                  <input className="form-input" dir="ltr" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={isAr ? '6 أحرف على الأقل' : 'Min 6 characters'} />
+                </div>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
                 <div className="form-group">
                   <label className="form-label">{isAr ? 'الاسم (عربي)' : 'Name (Arabic)'} *</label>
@@ -219,15 +251,11 @@ export default function TrainersPage() {
                   <input className="form-input" dir="ltr" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="01012345678" />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">{isAr ? 'البريد الإلكتروني' : 'Email'}</label>
-                  <input className="form-input" dir="ltr" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-4)' }}>
-                <div className="form-group">
                   <label className="form-label">{isAr ? 'التخصص' : 'Specialization'}</label>
                   <input className="form-input" value={form.specialization} onChange={e => setForm(f => ({ ...f, specialization: e.target.value }))} placeholder={isAr ? 'كمال أجسام' : 'Bodybuilding'} />
                 </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-4)' }}>
                 <div className="form-group">
                   <label className="form-label">{isAr ? 'العمولة %' : 'Commission %'}</label>
                   <input className="form-input" type="number" dir="ltr" value={form.commission} onChange={e => setForm(f => ({ ...f, commission: Number(e.target.value) }))} min={0} max={100} />
@@ -243,7 +271,7 @@ export default function TrainersPage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowForm(false)}>{t('common.cancel')}</button>
-              <button className="btn btn-primary" onClick={handleSubmit} disabled={saving || !form.name.ar}>
+              <button className="btn btn-primary" onClick={handleSubmit} disabled={saving || !form.name.ar || !form.email || !form.password}>
                 {saving ? '⏳' : '✅'} {t('common.save')}
               </button>
             </div>

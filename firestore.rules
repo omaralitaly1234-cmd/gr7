@@ -82,8 +82,13 @@ service cloud.firestore {
         (isAuthenticated() && resource.data.tenantId != null &&
          isTenantAdmin(resource.data.tenantId));
       
-      // Create: only during registration (limited fields)
-      allow create: if request.auth.uid == userId && isValidNewUser();
+      // Create: self-registration OR tenant admin creating trainer/member accounts
+      allow create: if (request.auth.uid == userId && isValidNewUser()) ||
+        // Tenant admin/owner can create user docs for trainers/members they onboard
+        (isAuthenticated() && isValidNewUser() &&
+         request.resource.data.role in ['trainer', 'member'] &&
+         request.resource.data.tenantId != null &&
+         isTenantAdmin(request.resource.data.tenantId));
       
       // Update own data: CANNOT escalate privileges
       // EXCEPTION: During initial onboarding (tenantId is null), allow setting role/tenantRole

@@ -46,40 +46,94 @@ export default function TrainersPage() {
   };
 
   const handleSubmit = async () => {
-    if (!tenantId || !form.name.ar || !form.email || !form.password) return;
+    if (!tenantId || !form.name.ar || !form.email || !form.password) {
+      toast.error(isAr ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill all required fields');
+      return;
+    }
     if (form.password.length < 6) {
       toast.error(isAr ? 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' : 'Password must be at least 6 characters');
       return;
     }
     setSaving(true);
     try {
-      const res = await fetch('/api/admin/trainers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      // Use a secondary Firebase App to create the trainer's auth account
+      // This prevents signing out the current gym owner
+      const { initializeApp, deleteApp } = await import('firebase/app');
+      const { getAuth, createUserWithEmailAndPassword, updateProfile } = await import('firebase/auth');
+
+      const firebaseConfig = {
+        apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+        authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      };
+
+      // Create a temporary secondary app
+      const secondaryApp = initializeApp(firebaseConfig, 'trainerCreator_' + Date.now());
+      const secondaryAuth = getAuth(secondaryApp);
+
+      try {
+        // 1. Create Firebase Auth account using secondary app
+        const displayName = form.name.ar || form.name.en || '';
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, form.email, form.password);
+        const trainerUid = userCredential.user.uid;
+        await updateProfile(userCredential.user, { displayName });
+
+        // Sign out from secondary auth immediately
+        await secondaryAuth.signOut();
+
+        // 2. Create user document in Firestore
+        const { setDocument, addTenantDocument: addTrainerDoc } = await import('@/lib/firebase/firestore');
+        const { serverTimestamp } = await import('firebase/firestore');
+
+        await setDocument('users', trainerUid, {
+          uid: trainerUid,
           email: form.email,
-          password: form.password,
+          phone: form.phone || '',
+          displayName,
+          role: 'trainer',
+          lang: 'ar',
+          avatar: '',
+          isActive: true,
           tenantId,
-          callerUid: user?.uid,
+          superAdmin: false,
+          tenantRole: 'trainer',
+          fcmTokens: [],
+        }, false);
+
+        // 3. Add trainer to tenant's trainers sub-collection
+        await addTrainerDoc(tenantId, 'trainers', {
+          uid: trainerUid,
           name: form.name,
-          phone: form.phone,
-          specialization: form.specialization,
-          commission: form.commission,
-          gender: form.gender,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        console.error('[Trainers] API error:', data);
-        throw new Error(data.message || 'Failed to create trainer');
+          phone: form.phone || '',
+          email: form.email,
+          specialization: form.specialization || '',
+          commission: form.commission || 10,
+          gender: form.gender || 'male',
+          status: 'active',
+          rating: 0,
+          totalSessions: 0,
+          monthlyEarnings: 0,
+        });
+
+        toast.success(isAr ? 'تم إنشاء حساب المدرب بنجاح ✅' : 'Trainer account created successfully ✅');
+        setShowForm(false);
+        setForm({ name: { ar: '', en: '' }, phone: '', email: '', password: '', specialization: '', commission: 10, status: 'active', gender: 'male' });
+        loadData();
+      } finally {
+        // Always clean up the secondary app
+        try { await deleteApp(secondaryApp); } catch {}
       }
-      toast.success(isAr ? 'تم إنشاء حساب المدرب بنجاح' : 'Trainer account created successfully');
-      setShowForm(false);
-      setForm({ name: { ar: '', en: '' }, phone: '', email: '', password: '', specialization: '', commission: 10, status: 'active', gender: 'male' });
-      loadData();
     } catch (err) {
-      console.error('[Trainers] Error:', err);
-      toast.error(err.message || t('common.error'));
+      console.error('[Trainers] Error creating trainer:', err);
+      let msg = err.message || (isAr ? 'حدث خطأ' : 'Error occurred');
+      if (err.code === 'auth/email-already-in-use') {
+        msg = isAr ? 'البريد الإلكتروني مستخدم بالفعل' : 'Email already in use';
+      } else if (err.code === 'auth/weak-password') {
+        msg = isAr ? 'كلمة المرور ضعيفة جداً' : 'Password is too weak';
+      } else if (err.code === 'auth/invalid-email') {
+        msg = isAr ? 'البريد الإلكتروني غير صالح' : 'Invalid email';
+      }
+      toast.error(msg);
     }
     setSaving(false);
   };

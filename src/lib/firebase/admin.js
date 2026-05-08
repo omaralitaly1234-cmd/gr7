@@ -15,11 +15,13 @@ function getAdmin() {
 
   if (!firebaseAdmin.apps.length) {
     let credential;
-    let projectId = (process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'gr7-system').trim();
-
-    // Primary: Use individual env vars (works in both local and production)
-    const clientEmail = (process.env.FIREBASE_ADMIN_CLIENT_EMAIL || '').trim();
+    // Strip ALL \r \n \t and spaces from single-line env values
+    // Google Cloud Secret Manager often appends \r\n to secret values
+    let projectId = (process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'gr7-system').replace(/[\r\n\t ]+/g, '');
+    const clientEmail = (process.env.FIREBASE_ADMIN_CLIENT_EMAIL || '').replace(/[\r\n\t ]+/g, '');
     const rawKey = (process.env.FIREBASE_ADMIN_PRIVATE_KEY || '').trim();
+
+    console.log('[Admin SDK] projectId:', JSON.stringify(projectId), 'len:', projectId.length);
 
     if (clientEmail && rawKey) {
       let pk = rawKey;

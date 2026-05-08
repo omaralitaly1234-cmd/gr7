@@ -3,100 +3,142 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { getDocuments, updateDocument } from '@/lib/firebase/firestore';
 import { PLAN_DEFINITIONS } from '@/lib/firebase/subscription';
-
-const DEMO_TENANTS = [
-  {
-    id: 'gym-001', name: 'Power Time - المعادي', nameAr: 'Power Time - المعادي', status: 'trial',
-    ownerEmail: 'maadi@gym.com', phone: '01012345678', createdAt: { toDate: () => new Date('2026-03-15') },
-    subscription: { plan: 'trial', trialEndDate: { toDate: () => new Date('2026-06-15') } },
-    limits: { maxMembers: 100, maxTrainers: 3 },
-  },
-  {
-    id: 'gym-002', name: 'FitZone - مدينة نصر', nameAr: 'فيت زون - مدينة نصر', status: 'active',
-    ownerEmail: 'nasr@fitzone.com', phone: '01098765432', createdAt: { toDate: () => new Date('2026-01-10') },
-    subscription: { plan: 'quarterly', endDate: { toDate: () => new Date('2026-07-10') } },
-    limits: { maxMembers: 500, maxTrainers: 10 },
-  },
-  {
-    id: 'gym-003', name: 'Iron Gym - التجمع', nameAr: 'أيرون جيم - التجمع', status: 'active',
-    ownerEmail: 'tagamoa@iron.com', phone: '01155566677', createdAt: { toDate: () => new Date('2025-11-01') },
-    subscription: { plan: 'annual', endDate: { toDate: () => new Date('2026-11-01') } },
-    limits: { maxMembers: -1, maxTrainers: -1 },
-  },
-  {
-    id: 'gym-004', name: 'Champions Gym', nameAr: 'تشامبيونز جيم', status: 'expired',
-    ownerEmail: 'champ@gym.com', phone: '01234567890', createdAt: { toDate: () => new Date('2025-09-01') },
-    subscription: { plan: 'trial', trialEndDate: { toDate: () => new Date('2025-12-01') } },
-    limits: {},
-  },
-  {
-    id: 'gym-005', name: 'Flex Fitness', nameAr: 'فليكس فيتنس', status: 'trial',
-    ownerEmail: 'flex@fitness.com', phone: '01112233445', createdAt: { toDate: () => new Date('2026-03-28') },
-    subscription: { plan: 'trial', trialEndDate: { toDate: () => new Date('2026-06-28') } },
-    limits: { maxMembers: 100, maxTrainers: 3 },
-  },
-  {
-    id: 'gym-006', name: 'Royal Gym - الدقي', nameAr: 'رويال جيم - الدقي', status: 'suspended',
-    ownerEmail: 'royal@gym.com', phone: '01009988776', createdAt: { toDate: () => new Date('2026-02-01') },
-    subscription: { plan: 'monthly', endDate: { toDate: () => new Date('2026-04-01') } },
-    limits: { maxMembers: 300, maxTrainers: 5 },
-  },
-];
+import toast from 'react-hot-toast';
 
 export default function TenantsPage() {
   const params = useParams();
   const locale = params?.locale || 'ar';
+  const isAr = locale === 'ar';
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [tenants] = useState(DEMO_TENANTS);
+  const [tenants, setTenants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(null);
+
+  useEffect(() => { loadTenants(); }, []);
+
+  const loadTenants = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await getDocuments('tenants', [], { field: 'createdAt', direction: 'desc' });
+      if (error) {
+        console.error('[Tenants] Load error:', error);
+        toast.error(isAr ? 'فشل تحميل العملاء' : 'Failed to load tenants');
+      }
+      setTenants(data || []);
+    } catch (err) {
+      console.error('[Tenants] Error:', err);
+    }
+    setLoading(false);
+  };
+
+  // Change tenant status
+  const changeStatus = async (tenantId, newStatus) => {
+    setActionLoading(tenantId);
+    try {
+      const { error } = await updateDocument('tenants', tenantId, { status: newStatus });
+      if (error) throw new Error(error);
+      toast.success(isAr ? 'تم تحديث الحالة' : 'Status updated');
+      loadTenants();
+    } catch (err) {
+      console.error('[Tenants] Status change error:', err);
+      toast.error(err.message || (isAr ? 'حدث خطأ' : 'Error'));
+    }
+    setActionLoading(null);
+  };
 
   const filtered = tenants.filter(t => {
     if (filter !== 'all' && t.status !== filter) return false;
     if (search) {
       const s = search.toLowerCase();
-      return (t.name?.toLowerCase().includes(s) || t.nameAr?.includes(s) || t.ownerEmail?.toLowerCase().includes(s));
+      return (
+        t.name?.toLowerCase().includes(s) ||
+        t.nameAr?.toLowerCase().includes(s) ||
+        t.nameEn?.toLowerCase().includes(s) ||
+        t.ownerEmail?.toLowerCase().includes(s)
+      );
     }
     return true;
   });
 
   const statusBadge = (status) => {
     const map = {
-      active: { cls: 'badge-success', text: locale === 'ar' ? 'فعال' : 'Active' },
-      trial: { cls: 'badge-info', text: locale === 'ar' ? 'تجريبي' : 'Trial' },
-      expired: { cls: 'badge-danger', text: locale === 'ar' ? 'منتهي' : 'Expired' },
-      suspended: { cls: 'badge-warning', text: locale === 'ar' ? 'معلّق' : 'Suspended' },
+      active: { cls: 'badge-success', text: isAr ? 'فعال' : 'Active' },
+      trial: { cls: 'badge-info', text: isAr ? 'تجريبي' : 'Trial' },
+      expired: { cls: 'badge-danger', text: isAr ? 'منتهي' : 'Expired' },
+      suspended: { cls: 'badge-warning', text: isAr ? 'معلّق' : 'Suspended' },
+      pending_payment: { cls: 'badge-warning', text: isAr ? 'بانتظار الدفع' : 'Pending Payment' },
     };
-    const s = map[status] || map.expired;
+    const s = map[status] || { cls: 'badge-danger', text: status || '—' };
     return <span className={`badge ${s.cls}`}>{s.text}</span>;
   };
 
   const planLabel = (plan) => {
     const p = PLAN_DEFINITIONS[plan];
-    return p ? (p.name[locale] || p.name.ar) : plan;
+    return p ? (p.name?.[locale] || p.name?.ar || plan) : plan || '—';
   };
 
   const formatDate = (timestamp) => {
     if (!timestamp) return '—';
-    const d = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
-    return d.toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    try {
+      const d = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp?.seconds ? timestamp.seconds * 1000 : timestamp);
+      if (isNaN(d.getTime())) return '—';
+      return d.toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch { return '—'; }
   };
 
+  const countByStatus = (status) => tenants.filter(t => t.status === status).length;
+
   const filters = [
-    { key: 'all', label: locale === 'ar' ? 'الكل' : 'All', count: tenants.length },
-    { key: 'active', label: locale === 'ar' ? 'فعال' : 'Active', count: tenants.filter(t => t.status === 'active').length },
-    { key: 'trial', label: locale === 'ar' ? 'تجريبي' : 'Trial', count: tenants.filter(t => t.status === 'trial').length },
-    { key: 'expired', label: locale === 'ar' ? 'منتهي' : 'Expired', count: tenants.filter(t => t.status === 'expired').length },
-    { key: 'suspended', label: locale === 'ar' ? 'معلّق' : 'Suspended', count: tenants.filter(t => t.status === 'suspended').length },
+    { key: 'all', label: isAr ? 'الكل' : 'All', count: tenants.length },
+    { key: 'active', label: isAr ? 'فعال' : 'Active', count: countByStatus('active') },
+    { key: 'trial', label: isAr ? 'تجريبي' : 'Trial', count: countByStatus('trial') },
+    { key: 'expired', label: isAr ? 'منتهي' : 'Expired', count: countByStatus('expired') },
+    { key: 'suspended', label: isAr ? 'معلّق' : 'Suspended', count: countByStatus('suspended') },
+    { key: 'pending_payment', label: isAr ? 'بانتظار الدفع' : 'Pending', count: countByStatus('pending_payment') },
   ];
 
   return (
     <div className="animate-fadeIn">
       <div className="page-header">
-        <h1><span>🏢</span> {locale === 'ar' ? 'إدارة العملاء' : 'Manage Tenants'}</h1>
+        <h1><span>🏢</span> {isAr ? 'إدارة العملاء (الجيمات)' : 'Manage Tenants (Gyms)'}</h1>
         <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--pt-gray-400)' }}>
-          {locale === 'ar' ? `${totalCount()} عميل مسجّل` : `${totalCount()} registered clients`}
+          {isAr ? `${tenants.length} عميل مسجّل` : `${tenants.length} registered clients`}
         </span>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-4" style={{ marginBottom: 'var(--space-5)' }}>
+        <div className="stat-card">
+          <div className="stat-icon info">🏢</div>
+          <div className="stat-info">
+            <div className="stat-value">{tenants.length}</div>
+            <div className="stat-label">{isAr ? 'إجمالي الجيمات' : 'Total Gyms'}</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon success">✅</div>
+          <div className="stat-info">
+            <div className="stat-value">{countByStatus('active')}</div>
+            <div className="stat-label">{isAr ? 'فعال' : 'Active'}</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon gold">⏳</div>
+          <div className="stat-info">
+            <div className="stat-value">{countByStatus('trial')}</div>
+            <div className="stat-label">{isAr ? 'تجريبي' : 'Trial'}</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon danger">🚫</div>
+          <div className="stat-info">
+            <div className="stat-value">{countByStatus('expired') + countByStatus('suspended')}</div>
+            <div className="stat-label">{isAr ? 'منتهي/معلّق' : 'Expired/Suspended'}</div>
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
@@ -116,7 +158,7 @@ export default function TenantsPage() {
       <div style={{ marginBottom: 'var(--space-5)' }}>
         <input
           className="form-input"
-          placeholder={locale === 'ar' ? '🔍 ابحث بالاسم أو الإيميل...' : '🔍 Search by name or email...'}
+          placeholder={isAr ? '🔍 ابحث بالاسم أو الإيميل...' : '🔍 Search by name or email...'}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={{ maxWidth: 400 }}
@@ -124,71 +166,107 @@ export default function TenantsPage() {
       </div>
 
       {/* Table */}
-      <div className="card">
-        <div className="table-container">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>{locale === 'ar' ? 'الجيم' : 'Gym'}</th>
-                <th>{locale === 'ar' ? 'الخطة' : 'Plan'}</th>
-                <th>{locale === 'ar' ? 'الحالة' : 'Status'}</th>
-                <th>{locale === 'ar' ? 'تاريخ الانتهاء' : 'End Date'}</th>
-                <th>{locale === 'ar' ? 'الحدود' : 'Limits'}</th>
-                <th>{locale === 'ar' ? 'إجراءات' : 'Actions'}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((t) => (
-                <tr key={t.id}>
-                  <td>
-                    <div>
-                      <div style={{ fontWeight: 600 }}>{locale === 'ar' ? (t.nameAr || t.name) : t.name}</div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>{t.ownerEmail}</div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="badge badge-gold">{planLabel(t.subscription?.plan)}</span>
-                  </td>
-                  <td>{statusBadge(t.status)}</td>
-                  <td style={{ fontSize: 'var(--font-size-sm)' }}>
-                    {formatDate(t.subscription?.endDate || t.subscription?.trialEndDate)}
-                  </td>
-                  <td style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-400)' }}>
-                    {t.limits?.maxMembers === -1
-                      ? '♾'
-                      : `👥 ${t.limits?.maxMembers || '—'} / 🏋️ ${t.limits?.maxTrainers || '—'}`
-                    }
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                      <Link href={`/${locale}/super-admin/tenants/${t.id}`} className="btn btn-ghost btn-sm">
-                        👁️
-                      </Link>
-                      {t.status === 'trial' && (
-                        <button className="btn btn-primary btn-sm">
-                          {locale === 'ar' ? 'تفعيل' : 'Activate'}
-                        </button>
-                      )}
-                      {t.status === 'active' && (
-                        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--pt-warning)' }}>
-                          ⏸️
-                        </button>
-                      )}
-                      {t.status === 'suspended' && (
-                        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--pt-success)' }}>
-                          ▶️
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 'var(--space-12)' }}>
+          <div style={{ fontSize: '2rem', animation: 'spin 1s linear infinite', display: 'inline-block' }}>⚡</div>
+          <p style={{ color: 'var(--pt-gray-500)', marginTop: 'var(--space-3)' }}>{isAr ? 'جاري التحميل...' : 'Loading...'}</p>
         </div>
-      </div>
+      ) : filtered.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', padding: 'var(--space-12)' }}>
+          <div style={{ fontSize: '4rem', marginBottom: 'var(--space-4)' }}>🏢</div>
+          <h3>{isAr ? 'لا يوجد عملاء' : 'No tenants found'}</h3>
+          <p style={{ color: 'var(--pt-gray-500)' }}>{isAr ? 'لم يتم العثور على أي جيمات' : 'No gyms match your search'}</p>
+        </div>
+      ) : (
+        <div className="card">
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{isAr ? 'الجيم' : 'Gym'}</th>
+                  <th>{isAr ? 'الخطة' : 'Plan'}</th>
+                  <th>{isAr ? 'الحالة' : 'Status'}</th>
+                  <th>{isAr ? 'تاريخ الإنشاء' : 'Created'}</th>
+                  <th>{isAr ? 'تاريخ الانتهاء' : 'End Date'}</th>
+                  <th>{isAr ? 'الحدود' : 'Limits'}</th>
+                  <th>{isAr ? 'إجراءات' : 'Actions'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((t) => (
+                  <tr key={t.id} style={{ opacity: actionLoading === t.id ? 0.5 : 1 }}>
+                    <td>
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{isAr ? (t.nameAr || t.name) : (t.nameEn || t.name)}</div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>
+                          📧 {t.ownerEmail || '—'}
+                        </div>
+                        {t.phone && (
+                          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>
+                            📞 <span dir="ltr">{t.phone}</span>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <span className="badge badge-gold">{planLabel(t.subscription?.plan)}</span>
+                    </td>
+                    <td>{statusBadge(t.status)}</td>
+                    <td style={{ fontSize: 'var(--font-size-sm)' }}>
+                      {formatDate(t.createdAt)}
+                    </td>
+                    <td style={{ fontSize: 'var(--font-size-sm)' }}>
+                      {formatDate(t.subscription?.endDate || t.subscription?.trialEndDate)}
+                    </td>
+                    <td style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-400)' }}>
+                      {t.limits?.maxMembers === -1
+                        ? '♾'
+                        : `👥 ${t.limits?.maxMembers || '—'} / 🏋️ ${t.limits?.maxTrainers || '—'}`
+                      }
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                        {/* Activate */}
+                        {(t.status === 'trial' || t.status === 'pending_payment' || t.status === 'expired') && (
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => changeStatus(t.id, 'active')}
+                            disabled={actionLoading === t.id}
+                          >
+                            ✅ {isAr ? 'تفعيل' : 'Activate'}
+                          </button>
+                        )}
+                        {/* Suspend */}
+                        {(t.status === 'active' || t.status === 'trial') && (
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: 'var(--pt-warning)' }}
+                            onClick={() => changeStatus(t.id, 'suspended')}
+                            disabled={actionLoading === t.id}
+                          >
+                            ⏸️ {isAr ? 'تعليق' : 'Suspend'}
+                          </button>
+                        )}
+                        {/* Reactivate */}
+                        {t.status === 'suspended' && (
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: 'var(--pt-success)' }}
+                            onClick={() => changeStatus(t.id, 'active')}
+                            disabled={actionLoading === t.id}
+                          >
+                            ▶️ {isAr ? 'إعادة تفعيل' : 'Reactivate'}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
-
-  function totalCount() { return tenants.length; }
 }

@@ -15,11 +15,11 @@ function getAdmin() {
 
   if (!firebaseAdmin.apps.length) {
     let credential;
-    let projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'gr7-system';
+    let projectId = (process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'gr7-system').trim();
 
     // Primary: Use individual env vars (works in both local and production)
-    const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-    const rawKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY || '';
+    const clientEmail = (process.env.FIREBASE_ADMIN_CLIENT_EMAIL || '').trim();
+    const rawKey = (process.env.FIREBASE_ADMIN_PRIVATE_KEY || '').trim();
 
     if (clientEmail && rawKey) {
       let pk = rawKey;

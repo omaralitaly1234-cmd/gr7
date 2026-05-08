@@ -142,14 +142,14 @@ function AdminLayoutInner({ children }) {
               fontSize: 'var(--font-size-sm)',
               color: 'var(--pt-gray-300)',
             }}>
-              <a href="mailto:support@gr7-system.com" style={{
+              <a href="mailto:gr7.fit@gmail.com" style={{
                 color: 'var(--pt-info)',
                 textDecoration: 'none',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
               }}>
-                📧 support@gr7-system.com
+                📧 gr7.fit@gmail.com
               </a>
-              <a href="https://wa.me/201012345678" target="_blank" rel="noopener" style={{
+              <a href="https://wa.me/201032034773" target="_blank" rel="noopener" style={{
                 color: '#25D366',
                 textDecoration: 'none',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
@@ -248,10 +248,10 @@ function AdminLayoutInner({ children }) {
               📞 {isAr ? 'يرجى التواصل مع GR7 لتجديد الاشتراك' : 'Contact GR7 to renew'}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', fontSize: 'var(--font-size-sm)' }}>
-              <a href="mailto:support@gr7-system.com" style={{ color: 'var(--pt-info)', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                📧 support@gr7-system.com
+              <a href="mailto:gr7.fit@gmail.com" style={{ color: 'var(--pt-info)', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                📧 gr7.fit@gmail.com
               </a>
-              <a href="https://wa.me/201012345678" target="_blank" rel="noopener" style={{ color: '#25D366', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <a href="https://wa.me/201032034773" target="_blank" rel="noopener" style={{ color: '#25D366', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                 💬 WhatsApp
               </a>
             </div>

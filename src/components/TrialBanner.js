@@ -98,7 +98,7 @@ export default function TrialBanner() {
 
       {isExpiringSoon && (
         <a
-          href="https://wa.me/01000000000"
+          href="https://wa.me/201032034773"
           target="_blank"
           rel="noopener noreferrer"
           style={{

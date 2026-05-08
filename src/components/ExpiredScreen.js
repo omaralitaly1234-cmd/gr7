@@ -112,7 +112,7 @@ export default function ExpiredScreen() {
 
         {/* CTA */}
         <a
-          href="https://wa.me/01000000000"
+          href="https://wa.me/201032034773"
           target="_blank"
           rel="noopener noreferrer"
           className="btn btn-primary btn-lg"

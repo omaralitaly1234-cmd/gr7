@@ -1,6 +1,8 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '@/lib/firebase/config';
 import { onAuthChange, getUserData } from '@/lib/firebase/auth';
 import { signIn as firebaseSignIn, signOut as firebaseSignOut } from '@/lib/firebase/auth';
 
@@ -10,46 +12,67 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const userDocUnsubRef = useRef(null);
+  const safetyTimerRef = useRef(null);
 
   useEffect(() => {
-    let userDocUnsub = null;
+    // Safety timeout: if loading doesn't resolve in 10 seconds, force it
+    safetyTimerRef.current = setTimeout(() => {
+      setLoading((prev) => {
+        if (prev) {
+          console.warn('[Auth] Safety timeout reached — forcing loading=false');
+          return false;
+        }
+        return prev;
+      });
+    }, 10000);
 
     const unsubscribe = onAuthChange((firebaseUser) => {
       // Clean up previous user doc listener
-      if (userDocUnsub) {
-        userDocUnsub();
-        userDocUnsub = null;
+      if (userDocUnsubRef.current) {
+        userDocUnsubRef.current();
+        userDocUnsubRef.current = null;
       }
 
       if (firebaseUser) {
         setUser(firebaseUser);
         // Use real-time listener so userData updates automatically
         // (e.g., when tenantId/role are set during onboarding)
-        const { doc, onSnapshot } = require('firebase/firestore');
-        const { db } = require('@/lib/firebase/config');
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        userDocUnsub = onSnapshot(userRef, (snap) => {
-          if (snap.exists()) {
-            setUserData({ id: snap.id, ...snap.data() });
-          } else {
+        try {
+          const userRef = doc(db, 'users', firebaseUser.uid);
+          userDocUnsubRef.current = onSnapshot(userRef, (snap) => {
+            if (snap.exists()) {
+              setUserData({ id: snap.id, ...snap.data() });
+            } else {
+              console.warn('[Auth] User doc does not exist for uid:', firebaseUser.uid);
+              setUserData(null);
+            }
+            setLoading(false);
+            clearTimeout(safetyTimerRef.current);
+          }, (err) => {
+            console.error('[Auth] User doc listener error:', err.code, err.message);
             setUserData(null);
-          }
-          setLoading(false);
-        }, (err) => {
-          console.error('[Auth] User doc listener error:', err);
+            setLoading(false);
+            clearTimeout(safetyTimerRef.current);
+          });
+        } catch (err) {
+          console.error('[Auth] Failed to set up user doc listener:', err);
           setUserData(null);
           setLoading(false);
-        });
+          clearTimeout(safetyTimerRef.current);
+        }
       } else {
         setUser(null);
         setUserData(null);
         setLoading(false);
+        clearTimeout(safetyTimerRef.current);
       }
     });
 
     return () => {
       unsubscribe();
-      if (userDocUnsub) userDocUnsub();
+      if (userDocUnsubRef.current) userDocUnsubRef.current();
+      clearTimeout(safetyTimerRef.current);
     };
   }, []);
 

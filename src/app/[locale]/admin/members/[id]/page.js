@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
-import { getTenantDocument, getTenantDocuments, updateTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocument, getTenantDocuments, updateTenantDocument, addTenantDocument } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { Timestamp } from 'firebase/firestore';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -25,6 +26,9 @@ export default function MemberProfilePage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [showFreezeModal, setShowFreezeModal] = useState(false);
   const [freezeReason, setFreezeReason] = useState('');
+  const [showMessageModal, setShowMessageModal] = useState(false);
+  const [messageForm, setMessageForm] = useState({ title: '', message: '' });
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   useEffect(() => {
     async function loadMember() {
@@ -59,16 +63,26 @@ export default function MemberProfilePage() {
     if (!activeSub) return;
 
     try {
+      const freezeStart = new Date();
       await updateTenantDocument(tenantId, 'subscriptions', activeSub.id, {
         status: 'frozen',
-        currentFreezeStart: new Date(),
+        currentFreezeStart: Timestamp.fromDate(freezeStart),
+        freezeReason: freezeReason || '',
       });
       await updateTenantDocument(tenantId, 'members', memberId, { status: 'frozen' });
+      // Update local state so UI reflects changes immediately
       setMember(prev => ({ ...prev, status: 'frozen' }));
+      setSubscriptions(prev => prev.map(s =>
+        s.id === activeSub.id
+          ? { ...s, status: 'frozen', currentFreezeStart: Timestamp.fromDate(freezeStart), freezeReason: freezeReason || '' }
+          : s
+      ));
       setShowFreezeModal(false);
-      toast.success(isAr ? 'تم تجميد الاشتراك' : 'Subscription frozen');
+      setFreezeReason('');
+      toast.success(isAr ? 'تم تجميد الاشتراك بنجاح ❄️' : 'Subscription frozen ❄️');
     } catch (err) {
-      toast.error(isAr ? 'حدث خطأ' : 'Error occurred');
+      console.error('[Freeze]', err);
+      toast.error(isAr ? 'حدث خطأ أثناء التجميد' : 'Error freezing subscription');
     }
   };
 
@@ -78,23 +92,56 @@ export default function MemberProfilePage() {
 
     try {
       const freezeStart = frozenSub.currentFreezeStart?.toDate ? frozenSub.currentFreezeStart.toDate() : new Date(frozenSub.currentFreezeStart);
-      const daysFrozen = Math.ceil((new Date() - freezeStart) / (1000 * 60 * 60 * 24));
+      const daysFrozen = Math.max(1, Math.ceil((new Date() - freezeStart) / (1000 * 60 * 60 * 24)));
       const originalEnd = frozenSub.endDate?.toDate ? frozenSub.endDate.toDate() : new Date(frozenSub.endDate);
       const newEnd = new Date(originalEnd);
       newEnd.setDate(newEnd.getDate() + daysFrozen);
+      const newEndTimestamp = Timestamp.fromDate(newEnd);
 
       await updateTenantDocument(tenantId, 'subscriptions', frozenSub.id, {
         status: 'active',
         currentFreezeStart: null,
-        endDate: newEnd,
+        endDate: newEndTimestamp,
         freezeDaysUsed: (frozenSub.freezeDaysUsed || 0) + daysFrozen,
       });
       await updateTenantDocument(tenantId, 'members', memberId, { status: 'active' });
+      // Update local state so UI reflects changes immediately
       setMember(prev => ({ ...prev, status: 'active' }));
-      toast.success(isAr ? `تم إلغاء التجميد — تمت إضافة ${daysFrozen} يوم` : `Unfrozen — ${daysFrozen} days added`);
+      setSubscriptions(prev => prev.map(s =>
+        s.id === frozenSub.id
+          ? { ...s, status: 'active', currentFreezeStart: null, endDate: newEndTimestamp, freezeDaysUsed: (frozenSub.freezeDaysUsed || 0) + daysFrozen }
+          : s
+      ));
+      toast.success(isAr ? `تم إلغاء التجميد — تمت إضافة ${daysFrozen} يوم ✅` : `Unfrozen — ${daysFrozen} days added ✅`);
     } catch (err) {
-      toast.error(isAr ? 'حدث خطأ' : 'Error occurred');
+      console.error('[Unfreeze]', err);
+      toast.error(isAr ? 'حدث خطأ أثناء إلغاء التجميد' : 'Error unfreezing subscription');
     }
+  };
+
+  const handleSendMessage = async () => {
+    if (!tenantId || !memberId || !messageForm.title || !messageForm.message) return;
+    setSendingMessage(true);
+    try {
+      await addTenantDocument(tenantId, 'notifications', {
+        title: messageForm.title,
+        message: messageForm.message,
+        type: 'general',
+        target: 'individual',
+        memberId: memberId,
+        memberName: name,
+        status: 'sent',
+        sentAt: Timestamp.fromDate(new Date()),
+        readBy: [],
+      });
+      toast.success(isAr ? 'تم إرسال الرسالة بنجاح 📤' : 'Message sent successfully 📤');
+      setShowMessageModal(false);
+      setMessageForm({ title: '', message: '' });
+    } catch (err) {
+      console.error('[SendMessage]', err);
+      toast.error(isAr ? 'حدث خطأ أثناء الإرسال' : 'Error sending message');
+    }
+    setSendingMessage(false);
   };
 
   if (loading) return (
@@ -200,7 +247,7 @@ export default function MemberProfilePage() {
           <Link href={`/${locale}/admin/finance/payments?member=${memberId}`} className="btn btn-ghost btn-sm">
             💰 {isAr ? 'تسجيل دفعة' : 'Record Payment'}
           </Link>
-          <button className="btn btn-ghost btn-sm">📱 {isAr ? 'إرسال رسالة' : 'Send Message'}</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowMessageModal(true)}>📱 {isAr ? 'إرسال رسالة' : 'Send Message'}</button>
         </div>
       </div>
 
@@ -382,6 +429,48 @@ export default function MemberProfilePage() {
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowFreezeModal(false)}>{t('common.cancel')}</button>
               <button className="btn btn-primary" onClick={handleFreeze}>❄️ {t('subscriptions.freeze')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send Message Modal */}
+      {showMessageModal && (
+        <div className="modal-overlay" onClick={() => setShowMessageModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="modal-header">
+              <h2>📱 {isAr ? 'إرسال رسالة' : 'Send Message'}</h2>
+              <button onClick={() => setShowMessageModal(false)} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ marginBottom: 'var(--space-4)', padding: 'var(--space-3)', background: 'var(--pt-gold-glow)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <span style={{ fontSize: '1.5rem' }}>👤</span>
+                <div>
+                  <div style={{ fontWeight: 700, color: 'var(--pt-gold)' }}>{name}</div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-400)' }}>
+                    {member.phone && <span dir="ltr">{member.phone}</span>}
+                  </div>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">{isAr ? 'عنوان الرسالة' : 'Message Title'} *</label>
+                <input className="form-input" value={messageForm.title}
+                  onChange={e => setMessageForm(f => ({ ...f, title: e.target.value }))}
+                  placeholder={isAr ? 'مثال: تذكير بالتجديد' : 'e.g. Renewal Reminder'} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">{isAr ? 'نص الرسالة' : 'Message Body'} *</label>
+                <textarea className="form-input" rows={4} value={messageForm.message}
+                  onChange={e => setMessageForm(f => ({ ...f, message: e.target.value }))}
+                  placeholder={isAr ? 'اكتب الرسالة هنا...' : 'Write your message here...'} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowMessageModal(false)}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" onClick={handleSendMessage}
+                disabled={!messageForm.title || !messageForm.message || sendingMessage}>
+                {sendingMessage ? (isAr ? '⏳ جاري الإرسال...' : '⏳ Sending...') : `📤 ${t('common.send')}`}
+              </button>
             </div>
           </div>
         </div>

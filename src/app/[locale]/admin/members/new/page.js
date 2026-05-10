@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
-import { addTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
+import { addTenantDocument, getTenantCollectionCount, setDocument } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -39,6 +39,7 @@ export default function NewMemberPage() {
     medicalNotes: '', fitnessGoal: 'fitness',
     selectedPlan: '', paymentMethod: 'cash',
     discount: 0, notes: '',
+    createAccount: false, accountEmail: '', accountPassword: '',
   });
 
   const handleChange = (field, value) => {
@@ -68,41 +69,69 @@ export default function NewMemberPage() {
       toast.error(isAr ? 'خطأ في بيانات الجيم' : 'Gym data error');
       return;
     }
+    if (formData.createAccount && (!formData.accountEmail || !formData.accountPassword)) {
+      toast.error(isAr ? 'يرجى إدخال البريد وكلمة المرور لإنشاء حساب' : 'Email & password required for account');
+      return;
+    }
+    if (formData.createAccount && formData.accountPassword.length < 6) {
+      toast.error(isAr ? 'كلمة المرور 6 أحرف على الأقل' : 'Password min 6 chars');
+      return;
+    }
 
     setLoading(true);
     try {
       const memberNumber = await generateMemberNumber();
       const now = new Date();
       const plan = selectedPlan;
-
       const endDate = new Date(now);
       if (plan) endDate.setDate(endDate.getDate() + plan.duration);
+
+      let memberUid = null;
+
+      // Create Firebase Auth account if requested
+      if (formData.createAccount && formData.accountEmail && formData.accountPassword) {
+        const { initializeApp, deleteApp } = await import('firebase/app');
+        const { getAuth, createUserWithEmailAndPassword, updateProfile } = await import('firebase/auth');
+        const fbConfig = {
+          apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+          authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+          projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+        };
+        const secondaryApp = initializeApp(fbConfig, 'memberCreator_' + Date.now());
+        const secondaryAuth = getAuth(secondaryApp);
+        try {
+          const displayName = formData.fullNameAr;
+          const cred = await createUserWithEmailAndPassword(secondaryAuth, formData.accountEmail, formData.accountPassword);
+          memberUid = cred.user.uid;
+          await updateProfile(cred.user, { displayName });
+          await secondaryAuth.signOut();
+          await setDocument('users', memberUid, {
+            uid: memberUid, email: formData.accountEmail, phone: formData.phone || '',
+            displayName, role: 'member', lang: 'ar', avatar: '', isActive: true,
+            tenantId, superAdmin: false, tenantRole: 'member', fcmTokens: [],
+          }, false);
+        } finally {
+          try { await deleteApp(secondaryApp); } catch {}
+        }
+      }
 
       const memberData = {
         fullName: { ar: formData.fullNameAr, en: formData.fullNameEn || formData.fullNameAr },
         phone: formData.phone,
         whatsapp: formData.whatsapp || formData.phone,
-        email: formData.email,
+        email: formData.accountEmail || formData.email,
         gender: formData.gender,
         dateOfBirth: formData.dateOfBirth || null,
         nationalId: formData.nationalId,
         address: formData.address,
         photo: '',
-        emergencyContact: {
-          name: formData.emergencyName,
-          phone: formData.emergencyPhone,
-          relation: formData.emergencyRelation,
-        },
+        emergencyContact: { name: formData.emergencyName, phone: formData.emergencyPhone, relation: formData.emergencyRelation },
         membershipNumber: memberNumber,
         qrCode: memberNumber,
         joinDate: Timestamp.fromDate(now),
         status: 'active',
-        currentPlan: plan ? {
-          planId: plan.id,
-          planName: plan.name[locale],
-          type: plan.type,
-          endDate: Timestamp.fromDate(endDate),
-        } : null,
+        uid: memberUid,
+        currentPlan: plan ? { planId: plan.id, planName: plan.name[locale], type: plan.type, endDate: Timestamp.fromDate(endDate) } : null,
         planName: plan ? plan.name[locale] : '',
         endDate: plan ? endDate.toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-US') : '',
         assignedTrainer: null,
@@ -111,11 +140,7 @@ export default function NewMemberPage() {
         bloodType: formData.bloodType,
         medicalNotes: formData.medicalNotes,
         fitnessGoal: formData.fitnessGoal,
-        totalVisits: 0,
-        lastVisit: null,
-        totalSpent: calculateTotal(),
-        tags: [],
-        notes: formData.notes,
+        totalVisits: 0, lastVisit: null, totalSpent: calculateTotal(), tags: [], notes: formData.notes,
       };
 
       const { id: memberId, error } = await addTenantDocument(tenantId, 'members', memberData);
@@ -255,6 +280,35 @@ export default function NewMemberPage() {
                 onChange={e => handleChange('email', e.target.value)}
                 placeholder="ahmed@email.com" />
             </div>
+          </div>
+
+          {/* Account Creation Toggle */}
+          <div style={{ margin: 'var(--space-4) 0', padding: 'var(--space-4)', background: 'rgba(245,197,24,0.06)', border: '1px solid rgba(245,197,24,0.15)', borderRadius: 'var(--radius-md)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={formData.createAccount} onChange={e => handleChange('createAccount', e.target.checked)}
+                style={{ width: 20, height: 20, accentColor: 'var(--pt-gold)' }} />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>🔐 {isAr ? 'إنشاء حساب دخول للعضو' : 'Create login account for member'}</div>
+                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>{isAr ? 'سيتمكن العضو من الدخول بالبريد وكلمة المرور' : 'Member can log in with email & password'}</div>
+              </div>
+            </label>
+            {formData.createAccount && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'البريد الإلكتروني' : 'Email'} *</label>
+                  <input className="form-input" type="email" dir="ltr" value={formData.accountEmail}
+                    onChange={e => handleChange('accountEmail', e.target.value)} placeholder="member@email.com" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'كلمة المرور' : 'Password'} *</label>
+                  <input className="form-input" type="password" dir="ltr" value={formData.accountPassword}
+                    onChange={e => handleChange('accountPassword', e.target.value)} placeholder={isAr ? '6 أحرف على الأقل' : 'Min 6 characters'} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
             <div className="form-group">
               <label className="form-label">{t('members.gender')} *</label>
               <select className="form-select" value={formData.gender}

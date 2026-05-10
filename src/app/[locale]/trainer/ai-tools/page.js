@@ -1,18 +1,23 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAI } from '@/lib/hooks/useAI';
 import AIUsageWidget from '@/components/ai/AIUsageWidget';
 import AIUpgradeModal from '@/components/ai/AIUpgradeModal';
 import AILoadingAnimation from '@/components/ai/AILoadingAnimation';
+import { getTenantDocuments } from '@/lib/firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
+import { useAuth } from '@/lib/hooks/useAuth';
 
 export default function TrainerAIToolsPage() {
   const params = useParams();
   const locale = params?.locale || 'ar';
   const isAr = locale === 'ar';
   const { callAI, loading, usage, showUpgrade, setShowUpgrade, upgradeToPremium } = useAI();
+  const { tenantId } = useTenant();
+  const { user } = useAuth();
 
   const [selectedClient, setSelectedClient] = useState('');
   const [analysisType, setAnalysisType] = useState('assessment');
@@ -21,12 +26,25 @@ export default function TrainerAIToolsPage() {
     level: isAr ? 'مبتدئ' : 'Beginner', injuries: '', notes: '',
   });
   const [result, setResult] = useState(null);
+  const [realClients, setRealClients] = useState([]);
 
-  const demoClients = [
-    { id: 'c1', name: isAr ? 'أحمد محمد' : 'Ahmed Mohamed', age: 25, weight: 82, goal: isAr ? 'بناء عضلات' : 'Build muscle' },
-    { id: 'c2', name: isAr ? 'سارة علي' : 'Sara Ali', age: 30, weight: 65, goal: isAr ? 'خسارة وزن' : 'Weight loss' },
-    { id: 'c3', name: isAr ? 'عمر حسام' : 'Omar Hossam', age: 22, weight: 70, goal: isAr ? 'لياقة عامة' : 'General fitness' },
-  ];
+  useEffect(() => {
+    async function load() {
+      if (!tenantId || !user) return;
+      try {
+        const { data } = await getTenantDocuments(tenantId, 'members',
+          [{ field: 'assignedTrainer', operator: '==', value: user.uid }]);
+        setRealClients((data || []).map(c => ({
+          id: c.id,
+          name: c.fullName?.[locale] || c.fullName?.ar || '',
+          age: c.dateOfBirth ? Math.floor((Date.now() - new Date(c.dateOfBirth).getTime()) / 31557600000) : '',
+          weight: c.weight || '',
+          goal: c.fitnessGoal ? (isAr ? c.fitnessGoal : c.fitnessGoal) : '',
+        })));
+      } catch (err) { console.error(err); }
+    }
+    load();
+  }, [tenantId, user]);
 
   const analysisTypes = [
     { id: 'assessment', icon: '📊', label: isAr ? 'تقييم شامل' : 'Full Assessment', desc: isAr ? 'تقييم مستوى المتدرب وتحديد نقاط القوة والضعف' : 'Assess client level, strengths & weaknesses' },
@@ -38,7 +56,7 @@ export default function TrainerAIToolsPage() {
   const handleGenerate = async () => {
     if (loading) return;
     const data = selectedClient
-      ? demoClients.find(c => c.id === selectedClient) || clientData
+      ? realClients.find(c => c.id === selectedClient) || clientData
       : clientData;
 
     const endpoint = analysisType === 'nutrition' ? 'nutrition' : analysisType === 'program' ? 'workout' : 'chat';
@@ -83,7 +101,7 @@ export default function TrainerAIToolsPage() {
           <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
             <h3 style={{ marginBottom: 'var(--space-3)' }}>👤 {isAr ? 'اختر المتدرب' : 'Select Client'}</h3>
             <div className="grid grid-3" style={{ gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
-              {demoClients.map(client => (
+              {realClients.map(client => (
                 <button key={client.id} onClick={() => selectClient(client)} style={{
                   padding: 'var(--space-3)', borderRadius: 'var(--radius-md)',
                   background: selectedClient === client.id ? 'rgba(139,92,246,0.12)' : 'var(--pt-darker)',

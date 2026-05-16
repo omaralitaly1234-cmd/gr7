@@ -27,7 +27,6 @@ const adminMenuItems = [
   { key: 'ratings', icon: '⭐', path: '/admin/ratings' },
   { key: 'settings', icon: '⚙️', path: '/admin/settings' },
   { key: 'activity', icon: '📜', path: '/admin/activity', translationKey: 'sidebar.activity' },
-  { key: 'backup', icon: '💾', path: '/admin/backup', translationKey: 'sidebar.backup' },
   { key: 'campaigns', icon: '📣', path: '/admin/campaigns', translationKey: 'sidebar.campaigns' },
   { key: 'inventory', icon: '🏗️', path: '/admin/inventory', translationKey: 'sidebar.inventory' },
   { key: 'expenses', icon: '💸', path: '/admin/expenses', translationKey: 'sidebar.expenses' },

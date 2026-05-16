@@ -22,6 +22,7 @@ export default function MemberProfilePage() {
   const [subscriptions, setSubscriptions] = useState([]);
   const [payments, setPayments] = useState([]);
   const [attendance, setAttendance] = useState([]);
+  const [trainers, setTrainers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [showFreezeModal, setShowFreezeModal] = useState(false);
@@ -29,6 +30,9 @@ export default function MemberProfilePage() {
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [messageForm, setMessageForm] = useState({ title: '', message: '' });
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [showTrainerModal, setShowTrainerModal] = useState(false);
+  const [selectedTrainerId, setSelectedTrainerId] = useState('');
+  const [assigningTrainer, setAssigningTrainer] = useState(false);
 
   useEffect(() => {
     async function loadMember() {
@@ -51,6 +55,11 @@ export default function MemberProfilePage() {
           [{ field: 'memberId', operator: '==', value: memberId }],
           { field: 'checkIn', direction: 'desc' }, 20);
         setAttendance(att || []);
+
+        const { data: trainersList } = await getTenantDocuments(tenantId, 'trainers',
+          [{ field: 'status', operator: '==', value: 'active' }],
+          { field: 'name.ar', direction: 'asc' });
+        setTrainers(trainersList || []);
       } catch (err) { console.error(err); }
       setLoading(false);
     }
@@ -144,6 +153,29 @@ export default function MemberProfilePage() {
     setSendingMessage(false);
   };
 
+  const handleAssignTrainer = async () => {
+    if (!tenantId || !memberId) return;
+    setAssigningTrainer(true);
+    try {
+      const trainerObj = trainers.find(tr => tr.id === selectedTrainerId);
+      const updateData = selectedTrainerId
+        ? { assignedTrainer: trainerObj?.uid || selectedTrainerId, assignedTrainerName: trainerObj?.name || null, assignedTrainerDocId: selectedTrainerId }
+        : { assignedTrainer: null, assignedTrainerName: null, assignedTrainerDocId: null };
+      await updateTenantDocument(tenantId, 'members', memberId, updateData);
+      setMember(prev => ({ ...prev, ...updateData }));
+      setShowTrainerModal(false);
+      toast.success(
+        selectedTrainerId
+          ? (isAr ? `تم تخصيص المتدرب للمدرب ${trainerObj?.name?.[locale] || trainerObj?.name?.ar} ✅` : `Assigned to ${trainerObj?.name?.en || trainerObj?.name?.ar} ✅`)
+          : (isAr ? 'تم إلغاء تخصيص المدرب ✅' : 'Trainer unassigned ✅')
+      );
+    } catch (err) {
+      console.error('[AssignTrainer]', err);
+      toast.error(isAr ? 'حدث خطأ أثناء تخصيص المدرب' : 'Error assigning trainer');
+    }
+    setAssigningTrainer(false);
+  };
+
   if (loading) return (
     <div style={{ minHeight: '50vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ textAlign: 'center' }}>
@@ -166,6 +198,7 @@ export default function MemberProfilePage() {
   const name = member.fullName?.[locale] || member.fullName?.ar || '';
   const statusColors = { active: 'badge-success', expired: 'badge-danger', frozen: 'badge-frozen', cancelled: 'badge-warning' };
   const activeSub = subscriptions.find(s => s.status === 'active' || s.status === 'frozen');
+  const assignedTrainerObj = trainers.find(tr => tr.uid === member.assignedTrainer || tr.id === member.assignedTrainerDocId);
 
   const tabs = [
     { id: 'overview', label: isAr ? 'نظرة عامة' : 'Overview', icon: '📋' },
@@ -213,6 +246,18 @@ export default function MemberProfilePage() {
               <span>{member.gender === 'male' ? '♂️' : '♀️'} {t(`common.${member.gender}`)}</span>
               {member.email && <span>📧 {member.email}</span>}
             </div>
+            {member.assignedTrainer && (
+              <div style={{ marginTop: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '6px',
+                  padding: '4px 12px', borderRadius: 'var(--radius-sm)',
+                  background: 'rgba(0,176,255,0.1)', border: '1px solid rgba(0,176,255,0.2)',
+                  fontSize: 'var(--font-size-xs)', color: '#00B0FF', fontWeight: 600,
+                }}>
+                  👨‍🏫 {isAr ? 'المدرب:' : 'Trainer:'} {assignedTrainerObj?.name?.[locale] || assignedTrainerObj?.name?.ar || member.assignedTrainerName?.[locale] || member.assignedTrainerName?.ar || (isAr ? 'مدرب' : 'Trainer')}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Quick Stats */}
@@ -248,6 +293,13 @@ export default function MemberProfilePage() {
             💰 {isAr ? 'تسجيل دفعة' : 'Record Payment'}
           </Link>
           <button className="btn btn-ghost btn-sm" onClick={() => setShowMessageModal(true)}>📱 {isAr ? 'إرسال رسالة' : 'Send Message'}</button>
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={() => { setSelectedTrainerId(member.assignedTrainerDocId || ''); setShowTrainerModal(true); }}
+            style={{ color: '#00B0FF', borderColor: 'rgba(0,176,255,0.3)' }}
+          >
+            👨‍🏫 {member.assignedTrainer ? (isAr ? 'تغيير المدرب' : 'Change Trainer') : (isAr ? 'تخصيص مدرب' : 'Assign Trainer')}
+          </button>
         </div>
       </div>
 
@@ -470,6 +522,66 @@ export default function MemberProfilePage() {
               <button className="btn btn-primary" onClick={handleSendMessage}
                 disabled={!messageForm.title || !messageForm.message || sendingMessage}>
                 {sendingMessage ? (isAr ? '⏳ جاري الإرسال...' : '⏳ Sending...') : `📤 ${t('common.send')}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Trainer Modal */}
+      {showTrainerModal && (
+        <div className="modal-overlay" onClick={() => setShowTrainerModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div className="modal-header">
+              <h2>👨‍🏫 {isAr ? 'تخصيص مدرب' : 'Assign Trainer'}</h2>
+              <button onClick={() => setShowTrainerModal(false)} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ marginBottom: 'var(--space-4)', padding: 'var(--space-3)', background: 'var(--pt-gold-glow)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <span style={{ fontSize: '1.5rem' }}>👤</span>
+                <div>
+                  <div style={{ fontWeight: 700, color: 'var(--pt-gold)' }}>{name}</div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-400)' }}>{member.membershipNumber}</div>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">{isAr ? 'اختر المدرب' : 'Select Trainer'}</label>
+                <select className="form-select" value={selectedTrainerId} onChange={e => setSelectedTrainerId(e.target.value)} style={{ fontSize: 'var(--font-size-md)', padding: 'var(--space-3)' }}>
+                  <option value="">{isAr ? '— بدون مدرب —' : '— No Trainer —'}</option>
+                  {trainers.map(tr => (
+                    <option key={tr.id} value={tr.id}>
+                      {tr.name?.[locale] || tr.name?.ar} — {tr.specialization || (isAr ? 'عام' : 'General')}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedTrainerId && (() => {
+                const tr = trainers.find(t => t.id === selectedTrainerId);
+                if (!tr) return null;
+                return (
+                  <div style={{ marginTop: 'var(--space-3)', padding: 'var(--space-4)', background: 'var(--pt-darker)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(0,176,255,0.15)', display: 'flex', gap: 'var(--space-4)', alignItems: 'center' }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 'var(--radius-full)', background: 'rgba(0,176,255,0.12)', color: '#00B0FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: 800, flexShrink: 0 }}>
+                      {(tr.name?.[locale] || tr.name?.ar || '?').charAt(0)}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, marginBottom: '2px' }}>{tr.name?.[locale] || tr.name?.ar}</div>
+                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>
+                        🎯 {tr.specialization || '-'} &nbsp;|&nbsp; ⭐ {(tr.rating || 0).toFixed(1)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+              {member.assignedTrainer && !selectedTrainerId && (
+                <div style={{ marginTop: 'var(--space-3)', padding: 'var(--space-3)', background: 'rgba(255,82,82,0.08)', border: '1px solid rgba(255,82,82,0.2)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-sm)', color: 'var(--pt-danger)', textAlign: 'center' }}>
+                  ⚠️ {isAr ? 'سيتم إلغاء تخصيص المدرب الحالي من هذا العضو' : 'Current trainer will be unassigned from this member'}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowTrainerModal(false)}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" onClick={handleAssignTrainer} disabled={assigningTrainer}>
+                {assigningTrainer ? '⏳' : '✅'} {selectedTrainerId ? (isAr ? 'تخصيص المدرب' : 'Assign Trainer') : (isAr ? 'إلغاء التخصيص' : 'Remove Assignment')}
               </button>
             </div>
           </div>

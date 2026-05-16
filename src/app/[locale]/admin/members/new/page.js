@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
-import { addTenantDocument, getTenantCollectionCount, setDocument } from '@/lib/firebase/firestore';
+import { addTenantDocument, getTenantCollectionCount, getTenantDocuments, setDocument } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -29,6 +29,7 @@ export default function NewMemberPage() {
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [trainers, setTrainers] = useState([]);
   const [formData, setFormData] = useState({
     fullNameAr: '', fullNameEn: '',
     phone: '', whatsapp: '', email: '',
@@ -40,6 +41,7 @@ export default function NewMemberPage() {
     selectedPlan: '', paymentMethod: 'cash',
     discount: 0, notes: '',
     createAccount: false, accountEmail: '', accountPassword: '',
+    assignedTrainer: '',
   });
 
   const handleChange = (field, value) => {
@@ -47,6 +49,19 @@ export default function NewMemberPage() {
   };
 
   const selectedPlan = MEMBERSHIP_PLANS.find(p => p.id === formData.selectedPlan);
+
+  useEffect(() => {
+    async function loadTrainers() {
+      if (!tenantId) return;
+      try {
+        const { data } = await getTenantDocuments(tenantId, 'trainers',
+          [{ field: 'status', operator: '==', value: 'active' }],
+          { field: 'name.ar', direction: 'asc' });
+        setTrainers(data || []);
+      } catch (err) { console.error(err); }
+    }
+    loadTrainers();
+  }, [tenantId]);
 
   const calculateTotal = () => {
     if (!selectedPlan) return 0;
@@ -134,7 +149,9 @@ export default function NewMemberPage() {
         currentPlan: plan ? { planId: plan.id, planName: plan.name[locale], type: plan.type, endDate: Timestamp.fromDate(endDate) } : null,
         planName: plan ? plan.name[locale] : '',
         endDate: plan ? endDate.toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-US') : '',
-        assignedTrainer: null,
+        assignedTrainer: (() => { const tr = trainers.find(t => t.id === formData.assignedTrainer); return tr ? (tr.uid || formData.assignedTrainer) : null; })(),
+        assignedTrainerName: (() => { const tr = trainers.find(t => t.id === formData.assignedTrainer); return tr ? tr.name : null; })(),
+        assignedTrainerDocId: formData.assignedTrainer || null,
         height: formData.height ? Number(formData.height) : null,
         weight: formData.weight ? Number(formData.weight) : null,
         bloodType: formData.bloodType,
@@ -359,6 +376,26 @@ export default function NewMemberPage() {
             </div>
           </div>
 
+          {/* Assign Trainer */}
+          {trainers.length > 0 && (
+            <>
+              <h4 style={{ margin: 'var(--space-6) 0 var(--space-4)', color: 'var(--pt-gray-300)' }}>
+                👨‍🏫 {isAr ? 'تخصيص مدرب' : 'Assign Trainer'}
+              </h4>
+              <div className="form-group">
+                <label className="form-label">{isAr ? 'اختر المدرب المسؤول عن هذا المتدرب' : 'Select trainer responsible for this trainee'}</label>
+                <select className="form-select" value={formData.assignedTrainer}
+                  onChange={e => handleChange('assignedTrainer', e.target.value)}>
+                  <option value="">{isAr ? '— بدون مدرب —' : '— No Trainer —'}</option>
+                  {trainers.map(tr => (
+                    <option key={tr.id} value={tr.id}>
+                      {tr.name?.[locale] || tr.name?.ar} — {tr.specialization || (isAr ? 'عام' : 'General')}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--space-6)' }}>
             <button className="btn btn-primary" onClick={() => setStep(2)}
               disabled={!formData.fullNameAr || !formData.phone}>

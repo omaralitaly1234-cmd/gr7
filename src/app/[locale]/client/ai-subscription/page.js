@@ -15,13 +15,7 @@ export default function AISubscriptionPage() {
 
   const isPremium = usage?.plan === 'premium';
 
-  const historyData = [
-    { date: '2026-04-04', feature: '🥗', action: isAr ? 'خطة تغذية' : 'Nutrition Plan', tokens: 450, cost: 0.0004 },
-    { date: '2026-04-03', feature: '🤖', action: isAr ? 'محادثة' : 'Chat', tokens: 120, cost: 0.0001 },
-    { date: '2026-04-03', feature: '🏋️', action: isAr ? 'برنامج تمارين' : 'Workout Program', tokens: 620, cost: 0.0005 },
-    { date: '2026-04-02', feature: '🤖', action: isAr ? 'محادثة' : 'Chat', tokens: 90, cost: 0.0001 },
-    { date: '2026-04-01', feature: '🥗', action: isAr ? 'خطة تغذية' : 'Nutrition Plan', tokens: 380, cost: 0.0003 },
-  ];
+  const historyData = usage?.history || [];
 
   return (
     <div className="animate-fadeIn">

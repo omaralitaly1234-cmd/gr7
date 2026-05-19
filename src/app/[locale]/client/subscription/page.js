@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments } from '@/lib/firebase/firestore';
+import { getTenantDocuments, updateTenantDocument, addTenantDocument } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
+import toast from 'react-hot-toast';
 
 export default function ClientSubscriptionPage() {
   const t = useTranslations();
@@ -19,6 +20,13 @@ export default function ClientSubscriptionPage() {
   const [memberData, setMemberData] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [history, setHistory] = useState([]);
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [showFreezeModal, setShowFreezeModal] = useState(false);
+  const [showGuestModal, setShowGuestModal] = useState(false);
+  const [freezeDays, setFreezeDays] = useState(3);
+  const [guestName, setGuestName] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     async function loadSubscriptionData() {
@@ -108,8 +116,8 @@ export default function ClientSubscriptionPage() {
           </div>
         </>)}
         <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-          <button className="btn btn-primary">🔄 {isAr ? 'تجديد الاشتراك' : 'Renew'}</button>
-          {subscription && (<><button className="btn btn-outline">❄️ {isAr ? 'تجميد' : 'Freeze'}</button><button className="btn btn-outline">👥 {isAr ? 'دعوة ضيف' : 'Invite Guest'}</button></>)}
+          <button className="btn btn-primary" onClick={() => setShowRenewModal(true)}>🔄 {isAr ? 'تجديد الاشتراك' : 'Renew'}</button>
+          {subscription && (<><button className="btn btn-outline" onClick={() => setShowFreezeModal(true)} disabled={freezeUsed >= freezeMax}>❄️ {isAr ? 'تجميد' : 'Freeze'}</button><button className="btn btn-outline" onClick={() => setShowGuestModal(true)} disabled={guestsUsed >= guestsMax}>👥 {isAr ? 'دعوة ضيف' : 'Invite Guest'}</button></>)}
         </div>
       </div>
       <div className="grid grid-2" style={{ marginBottom: 'var(--space-6)' }}>
@@ -128,6 +136,92 @@ export default function ClientSubscriptionPage() {
           </div>
         </div>
       </div>
+      {/* Renew Modal */}
+      {showRenewModal && (
+        <div className="modal-overlay" onClick={() => setShowRenewModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 450 }}>
+            <h2 style={{ marginBottom: 'var(--space-4)' }}>🔄 {isAr ? 'تجديد الاشتراك' : 'Renew Subscription'}</h2>
+            <div className="card" style={{ background: 'var(--pt-darker)', marginBottom: 'var(--space-4)' }}>
+              <p style={{ marginBottom: 'var(--space-2)' }}>{isAr ? 'الخطة الحالية' : 'Current Plan'}: <strong style={{ color: 'var(--pt-gold)' }}>{planName}</strong></p>
+              <p>{isAr ? 'السعر' : 'Price'}: <strong>{planPrice.toLocaleString()} {t('common.egp')}</strong></p>
+            </div>
+            <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>{isAr ? 'سيتم إرسال طلب التجديد لإدارة النادي للموافقة عليه.' : 'A renewal request will be sent to gym management for approval.'}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+              <button className="btn btn-secondary" onClick={() => setShowRenewModal(false)}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" disabled={actionLoading} onClick={async () => {
+                setActionLoading(true);
+                try {
+                  await addTenantDocument(tenantId, 'renewal-requests', { memberId: memberData.id, memberName: memberData.fullName, currentPlan: planName, price: planPrice, status: 'pending', requestedAt: new Date().toISOString() });
+                  toast.success(isAr ? 'تم إرسال طلب التجديد بنجاح' : 'Renewal request sent');
+                  setShowRenewModal(false);
+                } catch (err) { console.error(err); toast.error(isAr ? 'حدث خطأ' : 'Error'); }
+                setActionLoading(false);
+              }}>{actionLoading ? '...' : '✓ ' + (isAr ? 'إرسال الطلب' : 'Send Request')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Freeze Modal */}
+      {showFreezeModal && (
+        <div className="modal-overlay" onClick={() => setShowFreezeModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <h2 style={{ marginBottom: 'var(--space-4)' }}>❄️ {isAr ? 'تجميد الاشتراك' : 'Freeze Subscription'}</h2>
+            <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)' }}>{isAr ? `لديك ${freezeMax - freezeUsed} يوم تجميد متبقي` : `You have ${freezeMax - freezeUsed} freeze days remaining`}</p>
+            <div className="form-group" style={{ marginBottom: 'var(--space-4)' }}>
+              <label className="form-label">{isAr ? 'عدد الأيام' : 'Number of Days'}</label>
+              <input className="form-input" type="number" min="1" max={freezeMax - freezeUsed} value={freezeDays} onChange={e => setFreezeDays(Math.min(Number(e.target.value), freezeMax - freezeUsed))} dir="ltr" />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+              <button className="btn btn-secondary" onClick={() => setShowFreezeModal(false)}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" disabled={actionLoading || freezeDays < 1} onClick={async () => {
+                setActionLoading(true);
+                try {
+                  const newEnd = new Date(toDate(subscription.endDate).getTime() + freezeDays * 86400000);
+                  await updateTenantDocument(tenantId, 'subscriptions', subscription.id, { freezeDaysUsed: freezeUsed + freezeDays, endDate: newEnd, lastFreezeDate: new Date().toISOString() });
+                  toast.success(isAr ? `تم تجميد ${freezeDays} يوم بنجاح` : `${freezeDays} days frozen successfully`);
+                  setShowFreezeModal(false);
+                  setSubscription(prev => ({ ...prev, freezeDaysUsed: freezeUsed + freezeDays, endDate: newEnd }));
+                } catch (err) { console.error(err); toast.error(isAr ? 'حدث خطأ' : 'Error'); }
+                setActionLoading(false);
+              }}>{'❄️ ' + (isAr ? 'تجميد' : 'Freeze')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Guest Invite Modal */}
+      {showGuestModal && (
+        <div className="modal-overlay" onClick={() => setShowGuestModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <h2 style={{ marginBottom: 'var(--space-4)' }}>👥 {isAr ? 'دعوة ضيف' : 'Invite Guest'}</h2>
+            <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)' }}>{isAr ? `لديك ${guestsMax - guestsUsed} دعوة متبقية` : `You have ${guestsMax - guestsUsed} invitations remaining`}</p>
+            <div className="form-group" style={{ marginBottom: 'var(--space-3)' }}>
+              <label className="form-label">{isAr ? 'اسم الضيف' : 'Guest Name'}</label>
+              <input className="form-input" value={guestName} onChange={e => setGuestName(e.target.value)} placeholder={isAr ? 'الاسم الكامل' : 'Full name'} />
+            </div>
+            <div className="form-group" style={{ marginBottom: 'var(--space-4)' }}>
+              <label className="form-label">{isAr ? 'رقم الهاتف' : 'Phone'}</label>
+              <input className="form-input" value={guestPhone} onChange={e => setGuestPhone(e.target.value)} placeholder="01xxxxxxxxx" dir="ltr" />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+              <button className="btn btn-secondary" onClick={() => setShowGuestModal(false)}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" disabled={actionLoading || !guestName.trim()} onClick={async () => {
+                setActionLoading(true);
+                try {
+                  await addTenantDocument(tenantId, 'guest-invitations', { memberId: memberData.id, memberName: memberData.fullName, subscriptionId: subscription.id, guestName: guestName.trim(), guestPhone: guestPhone.trim(), date: new Date().toISOString(), status: 'active' });
+                  await updateTenantDocument(tenantId, 'subscriptions', subscription.id, { invitationsUsed: guestsUsed + 1 });
+                  toast.success(isAr ? 'تم إرسال الدعوة بنجاح' : 'Guest invitation sent');
+                  setShowGuestModal(false);
+                  setGuestName(''); setGuestPhone('');
+                  setSubscription(prev => ({ ...prev, invitationsUsed: guestsUsed + 1 }));
+                } catch (err) { console.error(err); toast.error(isAr ? 'حدث خطأ' : 'Error'); }
+                setActionLoading(false);
+              }}>{'👥 ' + (isAr ? 'إرسال الدعوة' : 'Send Invite')}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ const adminMenuItems = [
   { key: 'dashboard', icon: '📊', path: '/admin/dashboard' },
   { key: 'members', icon: '👥', path: '/admin/members' },
   { key: 'subscriptions', icon: '💳', path: '/admin/subscriptions' },
+  { key: 'renewalRequests', icon: '🔄', path: '/admin/renewal-requests', translationKey: 'sidebar.renewalRequests' },
   { key: 'spa', icon: '🧖', path: '/admin/spa' },
   { key: 'trainers', icon: '👨‍🏫', path: '/admin/trainers' },
   { key: 'classes', icon: '🏋️', path: '/admin/classes' },

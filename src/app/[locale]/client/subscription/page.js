@@ -20,6 +20,7 @@ export default function ClientSubscriptionPage() {
   const [memberData, setMemberData] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [history, setHistory] = useState([]);
+  const [renewalRequests, setRenewalRequests] = useState([]);
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [showFreezeModal, setShowFreezeModal] = useState(false);
   const [showGuestModal, setShowGuestModal] = useState(false);
@@ -52,6 +53,10 @@ export default function ClientSubscriptionPage() {
             [{ field: 'memberId', operator: '==', value: member.id }],
             { field: 'createdAt', direction: 'desc' });
           setHistory(allSubs || []);
+          const { data: myRequests } = await getTenantDocuments(tenantId, 'renewal-requests',
+            [{ field: 'memberId', operator: '==', value: member.id }],
+            { field: 'createdAt', direction: 'desc' });
+          setRenewalRequests(myRequests || []);
         }
       } catch (err) { console.error('Error loading subscription data:', err); }
       setLoading(false);
@@ -116,7 +121,9 @@ export default function ClientSubscriptionPage() {
           </div>
         </>)}
         <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" onClick={() => setShowRenewModal(true)}>🔄 {isAr ? 'تجديد الاشتراك' : 'Renew'}</button>
+          <button className="btn btn-primary" onClick={() => setShowRenewModal(true)} disabled={renewalRequests.some(r => r.status === 'pending')}>
+            🔄 {renewalRequests.some(r => r.status === 'pending') ? (isAr ? 'طلب قيد المراجعة' : 'Request Pending') : (isAr ? 'تجديد الاشتراك' : 'Renew')}
+          </button>
           {subscription && (<><button className="btn btn-outline" onClick={() => setShowFreezeModal(true)} disabled={freezeUsed >= freezeMax}>❄️ {isAr ? 'تجميد' : 'Freeze'}</button><button className="btn btn-outline" onClick={() => setShowGuestModal(true)} disabled={guestsUsed >= guestsMax}>👥 {isAr ? 'دعوة ضيف' : 'Invite Guest'}</button></>)}
         </div>
       </div>
@@ -136,6 +143,34 @@ export default function ClientSubscriptionPage() {
           </div>
         </div>
       </div>
+      {/* Renewal Requests Status */}
+      {renewalRequests.length > 0 && (
+        <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
+          <h3 style={{ marginBottom: 'var(--space-4)' }}>🔄 {isAr ? 'طلبات التجديد' : 'Renewal Requests'}</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            {renewalRequests.map((req, i) => {
+              const statusConfig = req.status === 'pending'
+                ? { icon: '⏳', label: isAr ? 'قيد المراجعة' : 'Pending', color: 'var(--pt-warning)', bg: 'rgba(255,167,38,0.1)', border: 'rgba(255,167,38,0.3)' }
+                : req.status === 'approved'
+                ? { icon: '✅', label: isAr ? 'تمت الموافقة' : 'Approved', color: 'var(--pt-success)', bg: 'rgba(0,200,83,0.1)', border: 'rgba(0,200,83,0.3)' }
+                : { icon: '❌', label: isAr ? 'مرفوض' : 'Rejected', color: 'var(--pt-danger)', bg: 'rgba(255,82,82,0.1)', border: 'rgba(255,82,82,0.3)' };
+              const reqDate = req.requestedAt ? new Date(req.requestedAt).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : (req.createdAt?.toDate ? req.createdAt.toDate().toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-');
+              return (
+                <div key={req.id || i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-3) var(--space-4)', background: statusConfig.bg, border: `1px solid ${statusConfig.border}`, borderRadius: 'var(--radius-md)' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>{req.currentPlan || planName}</div>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)', marginTop: 2 }}>{reqDate}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: statusConfig.color }}>{statusConfig.icon} {statusConfig.label}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Renew Modal */}
       {showRenewModal && (
         <div className="modal-overlay" onClick={() => setShowRenewModal(false)}>
@@ -151,9 +186,35 @@ export default function ClientSubscriptionPage() {
               <button className="btn btn-primary" disabled={actionLoading} onClick={async () => {
                 setActionLoading(true);
                 try {
-                  await addTenantDocument(tenantId, 'renewal-requests', { memberId: memberData.id, memberName: memberData.fullName, currentPlan: planName, price: planPrice, status: 'pending', requestedAt: new Date().toISOString() });
+                  await addTenantDocument(tenantId, 'renewal-requests', {
+                    memberId: memberData.id,
+                    memberName: memberData.fullName,
+                    memberPhone: memberData.phone || '',
+                    membershipNumber: memberData.membershipNumber || memberData.qrCode || '',
+                    currentPlan: planName,
+                    planType: planType,
+                    price: planPrice,
+                    status: 'pending',
+                    requestedAt: new Date().toISOString(),
+                  });
+                  // Also add a notification for admin
+                  await addTenantDocument(tenantId, 'admin-notifications', {
+                    type: 'renewal-request',
+                    title: isAr ? 'طلب تجديد اشتراك جديد' : 'New Renewal Request',
+                    body: isAr
+                      ? `قام العضو ${memberData.fullName?.ar || memberData.fullName} بإرسال طلب تجديد اشتراك (${planName})`
+                      : `Member ${memberData.fullName?.en || memberData.fullName} sent a renewal request (${planName})`,
+                    icon: '🔄',
+                    memberId: memberData.id,
+                    read: false,
+                  });
                   toast.success(isAr ? 'تم إرسال طلب التجديد بنجاح' : 'Renewal request sent');
                   setShowRenewModal(false);
+                  // Refresh renewal requests
+                  const { data: updated } = await getTenantDocuments(tenantId, 'renewal-requests',
+                    [{ field: 'memberId', operator: '==', value: memberData.id }],
+                    { field: 'createdAt', direction: 'desc' });
+                  setRenewalRequests(updated || []);
                 } catch (err) { console.error(err); toast.error(isAr ? 'حدث خطأ' : 'Error'); }
                 setActionLoading(false);
               }}>{actionLoading ? '...' : '✓ ' + (isAr ? 'إرسال الطلب' : 'Send Request')}</button>

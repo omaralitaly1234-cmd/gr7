@@ -75,7 +75,8 @@ export default function ClientMessagesPage() {
     </div>
   );
 
-  const trainerName = memberData?.assignedTrainerName || (isAr ? 'المدرب' : 'Trainer');
+  const rawTrainerName = memberData?.assignedTrainerName;
+  const trainerName = typeof rawTrainerName === 'object' && rawTrainerName ? (rawTrainerName[locale] || rawTrainerName.ar || rawTrainerName.en || '') : (rawTrainerName || (isAr ? 'المدرب' : 'Trainer'));
 
   return (
     <div className="animate-fadeIn">
@@ -119,7 +120,7 @@ export default function ClientMessagesPage() {
                   borderBottomInlineStart: msg.from !== 'member' ? '3px solid var(--pt-gray-600)' : 'none',
                 }}>
                   <div style={{ fontSize: '10px', color: msg.from === 'member' ? 'var(--pt-gold)' : 'var(--pt-gray-500)', marginBottom: '4px', fontWeight: 600 }}>
-                    {msg.from === 'member' ? (isAr ? 'أنت' : 'You') : (msg.senderName || trainerName)}
+                    {msg.from === 'member' ? (isAr ? 'أنت' : 'You') : (typeof msg.senderName === 'object' ? (msg.senderName?.[locale] || msg.senderName?.ar || '') : (msg.senderName || trainerName))}
                   </div>
                   <div style={{ fontSize: 'var(--font-size-sm)', lineHeight: 1.6 }}>{msg.text}</div>
                   <div style={{ fontSize: '10px', color: 'var(--pt-gray-600)', marginTop: '4px', textAlign: 'end' }}>

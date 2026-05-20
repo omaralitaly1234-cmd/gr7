@@ -1,49 +1,100 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import { getTenantDocuments, addTenantDocument } from '@/lib/firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
+import { useAuth } from '@/lib/hooks/useAuth';
+import { useTrainerClients } from '@/lib/hooks/useTrainerClients';
+import toast from 'react-hot-toast';
 
 export default function TrainerInjuryLogPage() {
   const params = useParams();
   const locale = params?.locale || 'ar';
+  const isAr = locale === 'ar';
+  const { tenantId } = useTenant();
+  const { user } = useAuth();
+  const { clients, loading: clientsLoading } = useTrainerClients();
+  const [injuries, setInjuries] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ memberId: '', injury: '', severity: 'mild', followUp: '', restrictions: '' });
 
-  const injuryLog = [
-    { client: locale === 'ar' ? 'أحمد محمد' : 'Ahmed M.', avatar: 'أ', injury: locale === 'ar' ? 'ألم كتف أيمن — التهاب rotator cuff خفيف' : 'Right shoulder pain — mild rotator cuff inflammation', date: '2026-03-22', severity: 'moderate', status: 'active',
-      restrictions: [locale === 'ar' ? 'تجنب أوفرهيد بريس' : 'Avoid overhead press', locale === 'ar' ? 'تقليل وزن البنش 20%' : 'Reduce bench weight 20%', locale === 'ar' ? 'تمارين إحماء كتف إضافية' : 'Extra shoulder warm-up'],
-      alternatives: [locale === 'ar' ? 'لاندماين بريس بدل أوفرهيد' : 'Landmine press instead of overhead', locale === 'ar' ? 'كابل فلاي بدل دمبل فلاي' : 'Cable fly instead of DB fly'],
-      followUp: '2026-04-05' },
-    { client: locale === 'ar' ? 'عمر حسام' : 'Omar H.', avatar: 'ع', injury: locale === 'ar' ? 'شد في أسفل الظهر — بعد ديدلفت ثقيل' : 'Lower back strain — after heavy deadlift', date: '2026-03-18', severity: 'mild', status: 'recovering',
-      restrictions: [locale === 'ar' ? 'إيقاف ديدلفت أسبوعين' : 'Stop deadlift for 2 weeks', locale === 'ar' ? 'تجنب أي تمرين ضغط محوري' : 'Avoid axial loading'],
-      alternatives: [locale === 'ar' ? 'تمارين ظهر بالكابل فقط' : 'Cable-only back exercises', locale === 'ar' ? 'سوبرمان + بيرد دوج' : 'Superman + Bird Dog'],
-      followUp: '2026-04-01' },
-    { client: locale === 'ar' ? 'سارة علي' : 'Sara A.', avatar: 'س', injury: locale === 'ar' ? 'آلام ركبة يسرى — الرباط الداخلي' : 'Left knee pain — MCL area', date: '2026-03-10', severity: 'moderate', status: 'recovered',
-      restrictions: [locale === 'ar' ? 'سكوات بوزن خفيف فقط' : 'Light weight squat only', locale === 'ar' ? 'تجنب lunges' : 'Avoid lunges'],
-      alternatives: [locale === 'ar' ? 'ليج بريس بزاوية 45' : '45° Leg Press', locale === 'ar' ? 'تمارين إطالة يومية' : 'Daily stretching'],
-      followUp: '2026-03-25' },
-  ];
+  useEffect(() => {
+    async function load() {
+      if (!tenantId || !user) return;
+      setLoading(true);
+      try {
+        const { data } = await getTenantDocuments(tenantId, 'injuries',
+          [{ field: 'trainerId', operator: '==', value: user.uid }],
+          { field: 'createdAt', direction: 'desc' });
+        setInjuries(data || []);
+      } catch (err) { console.error(err); }
+      setLoading(false);
+    }
+    load();
+  }, [tenantId, user]);
+
+  const handleSave = async () => {
+    if (!tenantId || !form.memberId || !form.injury) return;
+    setSaving(true);
+    try {
+      const client = clients.find(c => c.id === form.memberId);
+      await addTenantDocument(tenantId, 'injuries', {
+        memberId: form.memberId,
+        memberName: client?.fullName || {},
+        trainerId: user?.uid,
+        injury: form.injury,
+        severity: form.severity,
+        status: 'active',
+        followUp: form.followUp,
+        restrictions: form.restrictions.split('\n').filter(Boolean),
+      });
+      toast.success(isAr ? 'تم التسجيل ✅' : 'Injury logged ✅');
+      setShowModal(false);
+      setForm({ memberId: '', injury: '', severity: 'mild', followUp: '', restrictions: '' });
+      // Reload
+      const { data } = await getTenantDocuments(tenantId, 'injuries',
+        [{ field: 'trainerId', operator: '==', value: user.uid }],
+        { field: 'createdAt', direction: 'desc' });
+      setInjuries(data || []);
+    } catch (err) {
+      console.error(err);
+      toast.error(isAr ? 'حدث خطأ' : 'Error');
+    }
+    setSaving(false);
+  };
 
   const sevColors = { mild: '#4FC3F7', moderate: '#FF9100', severe: '#FF5252' };
   const statusColors = { active: '#FF5252', recovering: '#FF9100', recovered: '#00C853' };
   const statusLabels = {
-    active: locale === 'ar' ? '🔴 نشط' : '🔴 Active',
-    recovering: locale === 'ar' ? '🟡 يتعافى' : '🟡 Recovering',
-    recovered: locale === 'ar' ? '🟢 تعافى' : '🟢 Recovered',
+    active: isAr ? '🔴 نشط' : '🔴 Active',
+    recovering: isAr ? '🟡 يتعافى' : '🟡 Recovering',
+    recovered: isAr ? '🟢 تعافى' : '🟢 Recovered',
   };
+
+  if (clientsLoading || loading) return (
+    <div style={{ minHeight: '50vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ fontSize: '2rem', animation: 'spin 1s linear infinite', display: 'inline-block' }}>⚡</div>
+    </div>
+  );
 
   return (
     <div className="animate-fadeIn">
       <div className="page-header">
-        <h1><span>🏥</span> {locale === 'ar' ? 'سجل الإصابات' : 'Injury Log'}</h1>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ {locale === 'ar' ? 'إصابة جديدة' : 'Log Injury'}</button>
+        <h1><span>🏥</span> {isAr ? 'سجل الإصابات' : 'Injury Log'}</h1>
+        {clients.length > 0 && (
+          <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ {isAr ? 'إصابة جديدة' : 'Log Injury'}</button>
+        )}
       </div>
 
       {/* Summary */}
       <div className="grid grid-3" style={{ marginBottom: 'var(--space-5)' }}>
         {[
-          { v: injuryLog.filter(i => i.status === 'active').length, l: locale === 'ar' ? 'إصابات نشطة' : 'Active Injuries', color: '#FF5252', icon: '🔴' },
-          { v: injuryLog.filter(i => i.status === 'recovering').length, l: locale === 'ar' ? 'في التعافي' : 'Recovering', color: '#FF9100', icon: '🟡' },
-          { v: injuryLog.filter(i => i.status === 'recovered').length, l: locale === 'ar' ? 'تعافوا' : 'Recovered', color: '#00C853', icon: '🟢' },
+          { v: injuries.filter(i => i.status === 'active').length, l: isAr ? 'إصابات نشطة' : 'Active', color: '#FF5252', icon: '🔴' },
+          { v: injuries.filter(i => i.status === 'recovering').length, l: isAr ? 'في التعافي' : 'Recovering', color: '#FF9100', icon: '🟡' },
+          { v: injuries.filter(i => i.status === 'recovered').length, l: isAr ? 'تعافوا' : 'Recovered', color: '#00C853', icon: '🟢' },
         ].map((s, i) => (
           <div key={i} style={{ textAlign: 'center', padding: 'var(--space-3)', background: 'var(--pt-darker)', borderRadius: 'var(--radius-md)', borderTop: `3px solid ${s.color}` }}>
             <div style={{ fontSize: '1.2rem' }}>{s.icon}</div>
@@ -53,98 +104,100 @@ export default function TrainerInjuryLogPage() {
         ))}
       </div>
 
-      {/* Injury Cards */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        {injuryLog.map((inj, i) => (
-          <div key={i} className="card" style={{ borderInlineStart: `4px solid ${statusColors[inj.status]}` }}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-              <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-                <div style={{ width: 32, height: 32, borderRadius: 'var(--radius-full)', background: 'rgba(245,197,24,0.12)', color: 'var(--pt-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.8rem' }}>{inj.avatar}</div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>{inj.client}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--pt-gray-600)' }}>📅 {inj.date}</div>
+      {injuries.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', padding: 'var(--space-12)' }}>
+          <div style={{ fontSize: '4rem', marginBottom: 'var(--space-4)' }}>🏥</div>
+          <h3>{isAr ? 'لا توجد إصابات مسجلة' : 'No injuries logged'}</h3>
+          <p style={{ color: 'var(--pt-gray-500)' }}>{isAr ? 'سجل الإصابات فارغ — هذا شيء جيد!' : 'Injury log is empty — that\'s a good thing!'}</p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {injuries.map((inj, i) => {
+            const name = inj.memberName?.[locale] || inj.memberName?.ar || '';
+            return (
+              <div key={inj.id || i} className="card" style={{ borderInlineStart: `4px solid ${statusColors[inj.status] || '#FF5252'}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 'var(--radius-full)', background: 'rgba(245,197,24,0.12)', color: 'var(--pt-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.8rem' }}>{name.charAt(0)}</div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>{name}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--pt-gray-600)' }}>📅 {inj.createdAt?.toDate ? inj.createdAt.toDate().toLocaleDateString(isAr ? 'ar-EG' : 'en-US') : '-'}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)', fontSize: '10px' }}>
+                    <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-full)', background: `${sevColors[inj.severity] || '#4FC3F7'}15`, color: sevColors[inj.severity] || '#4FC3F7', fontWeight: 700 }}>
+                      {inj.severity || 'mild'}
+                    </span>
+                    <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-full)', background: `${statusColors[inj.status] || '#FF5252'}15`, color: statusColors[inj.status] || '#FF5252', fontWeight: 700 }}>
+                      {statusLabels[inj.status] || statusLabels.active}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div style={{ display: 'flex', gap: 'var(--space-2)', fontSize: '10px' }}>
-                <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-full)', background: `${sevColors[inj.severity]}15`, color: sevColors[inj.severity], fontWeight: 700 }}>
-                  {inj.severity === 'mild' ? '🟢' : inj.severity === 'moderate' ? '🟡' : '🔴'} {inj.severity}
-                </span>
-                <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-full)', background: `${statusColors[inj.status]}15`, color: statusColors[inj.status], fontWeight: 700 }}>
-                  {statusLabels[inj.status]}
-                </span>
-              </div>
-            </div>
-
-            {/* Injury Description */}
-            <div style={{ padding: 'var(--space-2)', background: 'rgba(255,145,0,0.04)', borderRadius: 'var(--radius-sm)', marginBottom: 'var(--space-3)', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
-              🏥 {inj.injury}
-            </div>
-
-            <div className="grid grid-2" style={{ gap: 'var(--space-3)' }}>
-              {/* Restrictions */}
-              <div>
-                <div style={{ fontWeight: 700, fontSize: '10px', color: '#FF5252', marginBottom: 'var(--space-1)' }}>⛔ {locale === 'ar' ? 'القيود' : 'Restrictions'}</div>
-                {inj.restrictions.map((r, j) => (
-                  <div key={j} style={{ fontSize: '11px', color: 'var(--pt-gray-400)', padding: '2px 0', display: 'flex', gap: '4px' }}>
-                    <span>•</span> {r}
+                <div style={{ padding: 'var(--space-2)', background: 'rgba(255,145,0,0.04)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                  🏥 {inj.injury}
+                </div>
+                {inj.restrictions?.length > 0 && (
+                  <div style={{ marginTop: 'var(--space-2)' }}>
+                    <div style={{ fontWeight: 700, fontSize: '10px', color: '#FF5252', marginBottom: 'var(--space-1)' }}>⛔ {isAr ? 'القيود' : 'Restrictions'}</div>
+                    {inj.restrictions.map((r, j) => (
+                      <div key={j} style={{ fontSize: '11px', color: 'var(--pt-gray-400)', padding: '2px 0', display: 'flex', gap: '4px' }}>
+                        <span>•</span> {r}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              {/* Alternatives */}
-              <div>
-                <div style={{ fontWeight: 700, fontSize: '10px', color: 'var(--pt-success)', marginBottom: 'var(--space-1)' }}>✅ {locale === 'ar' ? 'البدائل' : 'Alternatives'}</div>
-                {inj.alternatives.map((a, j) => (
-                  <div key={j} style={{ fontSize: '11px', color: 'var(--pt-gray-400)', padding: '2px 0', display: 'flex', gap: '4px' }}>
-                    <span>•</span> {a}
+                )}
+                {inj.followUp && (
+                  <div style={{ marginTop: 'var(--space-2)', fontSize: '10px', color: 'var(--pt-gray-600)' }}>
+                    📋 {isAr ? 'موعد المتابعة:' : 'Follow-up:'} <strong style={{ color: 'var(--pt-gold)' }}>{inj.followUp}</strong>
                   </div>
-                ))}
+                )}
               </div>
-            </div>
-
-            <div style={{ marginTop: 'var(--space-2)', fontSize: '10px', color: 'var(--pt-gray-600)' }}>
-              📋 {locale === 'ar' ? 'موعد المتابعة:' : 'Follow-up:'} <strong style={{ color: 'var(--pt-gold)' }}>{inj.followUp}</strong>
-            </div>
-          </div>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Add Injury Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
-            <h2 style={{ marginBottom: 'var(--space-4)' }}>🏥 {locale === 'ar' ? 'تسجيل إصابة جديدة' : 'Log New Injury'}</h2>
+            <h2 style={{ marginBottom: 'var(--space-4)' }}>🏥 {isAr ? 'تسجيل إصابة جديدة' : 'Log New Injury'}</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               <div className="form-group">
-                <label className="form-label">{locale === 'ar' ? 'العميل' : 'Client'}</label>
-                <select className="form-select"><option>{locale === 'ar' ? 'اختر العميل' : 'Select Client'}</option></select>
+                <label className="form-label">{isAr ? 'العميل' : 'Client'} *</label>
+                <select className="form-select" value={form.memberId} onChange={e => setForm(f => ({ ...f, memberId: e.target.value }))}>
+                  <option value="">{isAr ? 'اختر العميل' : 'Select Client'}</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.fullName?.[locale] || c.fullName?.ar}</option>)}
+                </select>
               </div>
               <div className="form-group">
-                <label className="form-label">{locale === 'ar' ? 'وصف الإصابة' : 'Injury Description'}</label>
-                <textarea className="form-input" rows={2} style={{ resize: 'none' }} />
+                <label className="form-label">{isAr ? 'وصف الإصابة' : 'Injury Description'} *</label>
+                <textarea className="form-input" rows={2} value={form.injury} onChange={e => setForm(f => ({ ...f, injury: e.target.value }))} style={{ resize: 'none' }} />
               </div>
               <div className="grid grid-2" style={{ gap: 'var(--space-3)' }}>
                 <div className="form-group">
-                  <label className="form-label">{locale === 'ar' ? 'الشدة' : 'Severity'}</label>
-                  <select className="form-select">
-                    <option>🟢 {locale === 'ar' ? 'خفيفة' : 'Mild'}</option>
-                    <option>🟡 {locale === 'ar' ? 'متوسطة' : 'Moderate'}</option>
-                    <option>🔴 {locale === 'ar' ? 'شديدة' : 'Severe'}</option>
+                  <label className="form-label">{isAr ? 'الشدة' : 'Severity'}</label>
+                  <select className="form-select" value={form.severity} onChange={e => setForm(f => ({ ...f, severity: e.target.value }))}>
+                    <option value="mild">🟢 {isAr ? 'خفيفة' : 'Mild'}</option>
+                    <option value="moderate">🟡 {isAr ? 'متوسطة' : 'Moderate'}</option>
+                    <option value="severe">🔴 {isAr ? 'شديدة' : 'Severe'}</option>
                   </select>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">{locale === 'ar' ? 'موعد المتابعة' : 'Follow-up Date'}</label>
-                  <input className="form-input" type="date" />
+                  <label className="form-label">{isAr ? 'موعد المتابعة' : 'Follow-up Date'}</label>
+                  <input className="form-input" type="date" value={form.followUp} onChange={e => setForm(f => ({ ...f, followUp: e.target.value }))} />
                 </div>
               </div>
               <div className="form-group">
-                <label className="form-label">{locale === 'ar' ? 'القيود والبدائل' : 'Restrictions & Alternatives'}</label>
-                <textarea className="form-input" rows={3} style={{ resize: 'none' }} placeholder={locale === 'ar' ? 'سطر لكل قيد أو بديل...' : 'One restriction/alternative per line...'} />
+                <label className="form-label">{isAr ? 'القيود (سطر لكل قيد)' : 'Restrictions (one per line)'}</label>
+                <textarea className="form-input" rows={3} value={form.restrictions} onChange={e => setForm(f => ({ ...f, restrictions: e.target.value }))} style={{ resize: 'none' }} />
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-4)' }}>
-              <button className="btn btn-secondary" onClick={() => setShowModal(false)}>{locale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
-              <button className="btn btn-primary" onClick={() => setShowModal(false)}>🏥 {locale === 'ar' ? 'حفظ' : 'Save'}</button>
+              <button className="btn btn-secondary" onClick={() => setShowModal(false)}>{isAr ? 'إلغاء' : 'Cancel'}</button>
+              <button className="btn btn-primary" onClick={handleSave} disabled={saving || !form.memberId || !form.injury}>
+                {saving ? '⏳' : '🏥'} {isAr ? 'حفظ' : 'Save'}
+              </button>
             </div>
           </div>
         </div>

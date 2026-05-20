@@ -56,10 +56,8 @@ export default function MemberProfilePage() {
           { field: 'checkIn', direction: 'desc' }, 20);
         setAttendance(att || []);
 
-        const { data: trainersList } = await getTenantDocuments(tenantId, 'trainers',
-          [{ field: 'status', operator: '==', value: 'active' }],
-          { field: 'name.ar', direction: 'asc' });
-        setTrainers(trainersList || []);
+        const { data: trainersList } = await getTenantDocuments(tenantId, 'trainers');
+        setTrainers((trainersList || []).filter(tr => tr.status === 'active' || !tr.status));
       } catch (err) { console.error(err); }
       setLoading(false);
     }
@@ -132,16 +130,19 @@ export default function MemberProfilePage() {
     if (!tenantId || !memberId || !messageForm.title || !messageForm.message) return;
     setSendingMessage(true);
     try {
+      const memberName = member?.fullName?.[locale] || member?.fullName?.ar || '';
       await addTenantDocument(tenantId, 'notifications', {
         title: messageForm.title,
+        body: messageForm.message,
         message: messageForm.message,
         type: 'general',
         target: 'individual',
         memberId: memberId,
-        memberName: name,
+        memberName: memberName,
+        icon: '📢',
         status: 'sent',
+        read: false,
         sentAt: Timestamp.fromDate(new Date()),
-        readBy: [],
       });
       toast.success(isAr ? 'تم إرسال الرسالة بنجاح 📤' : 'Message sent successfully 📤');
       setShowMessageModal(false);

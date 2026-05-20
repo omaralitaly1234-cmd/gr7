@@ -37,7 +37,7 @@ export default function TrainersPage() {
       // Enrich with client counts
       const { data: members } = await getTenantDocuments(tenantId, 'members');
       const enriched = (data || []).map(tr => {
-        const clientCount = (members || []).filter(m => m.assignedTrainer === tr.id).length;
+        const clientCount = (members || []).filter(m => m.assignedTrainer === tr.id || m.assignedTrainer === tr.uid || m.assignedTrainerDocId === tr.id).length;
         return { ...tr, clientCount };
       });
       setTrainers(enriched);

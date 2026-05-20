@@ -22,10 +22,12 @@ export default function TrainerClientsPage() {
     async function load() {
       if (!tenantId || !user) { setLoading(false); return; }
       try {
-        const { data } = await getTenantDocuments(tenantId, 'members',
-          [{ field: 'assignedTrainer', operator: '==', value: user.uid }],
-          { field: 'fullName.ar', direction: 'asc' });
-        setClients(data || []);
+        // Load all members, filter client-side for this trainer
+        const { data } = await getTenantDocuments(tenantId, 'members');
+        const myClients = (data || []).filter(m => m.assignedTrainer === user.uid || m.assignedTrainerDocId === user.uid);
+        // Sort by name
+        myClients.sort((a, b) => (a.fullName?.ar || '').localeCompare(b.fullName?.ar || ''));
+        setClients(myClients);
       } catch (err) { console.error(err); }
       setLoading(false);
     }

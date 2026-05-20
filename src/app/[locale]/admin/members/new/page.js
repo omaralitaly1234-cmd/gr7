@@ -54,10 +54,8 @@ export default function NewMemberPage() {
     async function loadTrainers() {
       if (!tenantId) return;
       try {
-        const { data } = await getTenantDocuments(tenantId, 'trainers',
-          [{ field: 'status', operator: '==', value: 'active' }],
-          { field: 'name.ar', direction: 'asc' });
-        setTrainers(data || []);
+        const { data } = await getTenantDocuments(tenantId, 'trainers');
+        setTrainers((data || []).filter(tr => tr.status === 'active' || !tr.status));
       } catch (err) { console.error(err); }
     }
     loadTrainers();

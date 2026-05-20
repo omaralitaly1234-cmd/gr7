@@ -28,11 +28,11 @@ export default function TrainerProgressPage() {
     async function load() {
       if (!tenantId || !user) { setLoading(false); return; }
       try {
-        const { data } = await getTenantDocuments(tenantId, 'members',
-          [{ field: 'assignedTrainer', operator: '==', value: user.uid }],
-          { field: 'fullName.ar', direction: 'asc' });
-        setClients(data || []);
-        if (data?.length > 0) setSelectedClient(data[0].id);
+        const { data } = await getTenantDocuments(tenantId, 'members');
+        const myClients = (data || []).filter(m => m.assignedTrainer === user.uid || m.assignedTrainerDocId === user.uid);
+        myClients.sort((a, b) => (a.fullName?.ar || '').localeCompare(b.fullName?.ar || ''));
+        setClients(myClients);
+        if (myClients.length > 0) setSelectedClient(myClients[0].id);
       } catch (err) { console.error(err); }
       setLoading(false);
     }

@@ -30,9 +30,13 @@ export default function TrainerSchedulePage() {
         const endOfWeek = new Date(startOfWeek);
         endOfWeek.setDate(startOfWeek.getDate() + 7);
 
-        const { data: sessions } = await getTenantDocuments(tenantId, 'trainer_sessions',
-          [{ field: 'trainerId', operator: '==', value: user.uid }],
-          { field: 'date', direction: 'asc' });
+        const { data: allSessions } = await getTenantDocuments(tenantId, 'trainer_sessions');
+        const sessions = (allSessions || []).filter(s => s.trainerId === user.uid);
+        sessions.sort((a, b) => {
+          const da = a.date?.toDate ? a.date.toDate() : new Date(a.date || 0);
+          const db = b.date?.toDate ? b.date.toDate() : new Date(b.date || 0);
+          return da - db;
+        });
 
         const dayNames = isAr
           ? ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']

@@ -189,18 +189,6 @@ service cloud.firestore {
           (isTenantAdmin(tenantId) && isTenantActive(tenantId));
       }
 
-      // Notifications — any tenant member can read, admin can write
-      match /notifications/{docId} {
-        allow read: if isSuperAdmin() || 
-          (belongsToTenant(tenantId) && isTenantActive(tenantId));
-        allow create: if isSuperAdmin() || 
-          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
-        allow update: if isSuperAdmin() || 
-          (belongsToTenant(tenantId) && isTenantActive(tenantId));
-        allow delete: if isSuperAdmin() || 
-          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
-      }
-
       // AI Usage tracking
       match /aiUsage/{docId} {
         allow read: if isSuperAdmin() || 
@@ -212,6 +200,40 @@ service cloud.firestore {
           allow read, write: if isSuperAdmin() || 
             (belongsToTenant(tenantId) && isTenantActive(tenantId));
         }
+      }
+
+      // Renewal Requests — any member can create, admin can update/delete
+      match /renewal-requests/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow create: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow update: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+        allow delete: if isSuperAdmin() || 
+          (isTenantOwner(tenantId) && isTenantActive(tenantId));
+      }
+
+      // Admin Notifications — any member can create (to notify admin), admin manages
+      match /admin-notifications/{docId} {
+        allow read: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+        allow create: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow update, delete: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+      }
+
+      // Notifications — any tenant member can read their own & create, admin can write
+      match /notifications/{docId} {
+        allow read: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow create: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow update: if isSuperAdmin() || 
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow delete: if isSuperAdmin() || 
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
       }
 
       // Generic catch-all for other tenant sub-collections

@@ -41,17 +41,55 @@ export default function NotificationsPage() {
   const handleSend = async () => {
     if (!tenantId || !composeForm.title || !composeForm.message) return;
     try {
-      await addTenantDocument(tenantId, 'notifications', {
-        ...composeForm,
-        status: 'sent',
-        sentAt: Timestamp.fromDate(new Date()),
-        readBy: [],
-      });
+      if (composeForm.target === 'individual') {
+        // Send to specific member
+        if (!composeForm.memberId) {
+          toast.error(isAr ? 'اختر العضو' : 'Select a member');
+          return;
+        }
+        await addTenantDocument(tenantId, 'notifications', {
+          title: composeForm.title,
+          body: composeForm.message,
+          message: composeForm.message,
+          type: composeForm.type,
+          target: 'individual',
+          memberId: composeForm.memberId,
+          icon: typeIcons[composeForm.type] || '📢',
+          status: 'sent',
+          read: false,
+          sentAt: Timestamp.fromDate(new Date()),
+        });
+      } else {
+        // Broadcast: create individual notification for each matching member
+        let targetMembers = members;
+        if (composeForm.target === 'active') {
+          targetMembers = members.filter(m => m.status === 'active');
+        } else if (composeForm.target === 'expired') {
+          targetMembers = members.filter(m => m.status === 'expired');
+        }
+        // Create a notification for each member
+        const promises = targetMembers.map(m =>
+          addTenantDocument(tenantId, 'notifications', {
+            title: composeForm.title,
+            body: composeForm.message,
+            message: composeForm.message,
+            type: composeForm.type,
+            target: composeForm.target,
+            memberId: m.id,
+            icon: typeIcons[composeForm.type] || '📢',
+            status: 'sent',
+            read: false,
+            sentAt: Timestamp.fromDate(new Date()),
+          })
+        );
+        await Promise.all(promises);
+      }
       toast.success(isAr ? 'تم إرسال الإشعار' : 'Notification sent');
       setShowCompose(false);
       setComposeForm({ title: '', message: '', type: 'general', target: 'all', memberId: '' });
       loadData();
     } catch (err) {
+      console.error(err);
       toast.error(t('common.error'));
     }
   };

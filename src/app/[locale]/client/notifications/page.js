@@ -48,7 +48,7 @@ export default function ClientNotifications() {
               <div style={{ width: 44, height: 44, borderRadius: 'var(--radius-full)', background: 'var(--pt-gold-glow)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem', flexShrink: 0 }}>{notif.icon || '🔔'}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: notif.read ? 400 : 600, marginBottom: '4px' }}>{notif.title || ''}</div>
-                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--pt-gray-400)', marginBottom: '4px' }}>{notif.body || ''}</div>
+                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--pt-gray-400)', marginBottom: '4px' }}>{notif.body || notif.message || ''}</div>
                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-600)' }}>{toDate(notif.createdAt)}</div>
               </div>
               {!notif.read && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--pt-gold)', flexShrink: 0, marginTop: '8px' }} />}

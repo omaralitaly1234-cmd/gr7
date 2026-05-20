@@ -7,6 +7,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import TrialBanner from '@/components/TrialBanner';
 import FeatureGate from '@/components/FeatureGate';
+import NotificationPopup from '@/components/NotificationPopup';
 import { TenantProvider } from '@/context/TenantContext';
 
 // Lazy-safe AIChatWidget wrapper — only renders if component exists
@@ -72,6 +73,7 @@ export default function ClientLayout({ children }) {
           </div>
         </main>
         <AIChatWidgetSafe locale={locale} role="client" />
+        <NotificationPopup />
       </div>
     </TenantProvider>
   );

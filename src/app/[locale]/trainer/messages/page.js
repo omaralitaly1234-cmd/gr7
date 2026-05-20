@@ -43,15 +43,15 @@ export default function TrainerMessagesPage() {
       const client = clients[selectedClient];
       if (!client) return;
       try {
-        const { data } = await getTenantDocuments(tenantId, 'messages',
-          [{ field: 'participants', operator: 'array-contains', value: user.uid }],
-          { field: 'sentAt', direction: 'asc' });
-        const filtered = (data || []).filter(m =>
-          (m.senderId === user.uid && m.receiverId === client.uid) ||
-          (m.senderId === client.uid && m.receiverId === user.uid) ||
-          (m.senderId === user.uid && m.memberId === client.id) ||
-          (m.memberId === client.id)
-        );
+        // Load all messages for this member - simple query, no compound index needed
+        const { data } = await getTenantDocuments(tenantId, 'messages');
+        const filtered = (data || []).filter(m => m.memberId === client.id);
+        // Sort by time
+        filtered.sort((a, b) => {
+          const ta = a.sentAt?.toDate ? a.sentAt.toDate().getTime() : a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
+          const tb = b.sentAt?.toDate ? b.sentAt.toDate().getTime() : b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+          return ta - tb;
+        });
         setMessages(filtered);
       } catch (err) { console.error(err); }
     }
@@ -61,23 +61,44 @@ export default function TrainerMessagesPage() {
   const handleSend = async () => {
     if (!newMsg.trim() || !tenantId || !user || clients.length === 0) return;
     const client = clients[selectedClient];
+    const clientName = client.fullName?.[locale] || client.fullName?.ar || '';
     setSending(true);
     try {
-      await addTenantDocument(tenantId, 'messages', {
+      const now = Timestamp.fromDate(new Date());
+      const msgDoc = {
         senderId: user.uid,
-        receiverId: client.uid || null,
-        memberId: client.id,
         senderName: user.displayName || 'Trainer',
-        receiverName: client.fullName?.[locale] || client.fullName?.ar || '',
+        receiverId: client.uid || client.id,
+        receiverName: clientName,
+        memberId: client.id,
         text: newMsg,
         from: 'trainer',
         participants: [user.uid, client.uid || client.id],
-        sentAt: Timestamp.fromDate(new Date()),
+        sentAt: now,
+        createdAt: now,
         read: false,
+      };
+      await addTenantDocument(tenantId, 'messages', msgDoc);
+
+      // Also create a notification so member sees it in notifications page
+      await addTenantDocument(tenantId, 'notifications', {
+        memberId: client.id,
+        title: isAr ? '💬 رسالة من المدرب' : '💬 Message from Trainer',
+        body: newMsg,
+        message: newMsg,
+        icon: '💬',
+        read: false,
+        type: 'trainer-message',
+        senderId: user.uid,
+        senderName: user.displayName || 'Trainer',
+        createdAt: now,
       });
-      setMessages(prev => [...prev, { text: newMsg, from: 'trainer', sentAt: Timestamp.fromDate(new Date()) }]);
+
+      setMessages(prev => [...prev, { ...msgDoc }]);
       setNewMsg('');
+      toast.success(isAr ? 'تم الإرسال ✅' : 'Sent ✅');
     } catch (err) {
+      console.error(err);
       toast.error(isAr ? 'حدث خطأ' : 'Error sending');
     }
     setSending(false);
@@ -141,7 +162,7 @@ export default function TrainerMessagesPage() {
                   <div style={{ maxWidth: '70%', padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-lg)', background: msg.from === 'trainer' ? 'rgba(245,197,24,0.1)' : 'var(--pt-darker)', borderBottomInlineStart: msg.from === 'trainer' ? '3px solid var(--pt-gold)' : 'none', borderBottomInlineEnd: msg.from !== 'trainer' ? '3px solid var(--pt-gray-600)' : 'none' }}>
                     <div style={{ fontSize: 'var(--font-size-sm)', lineHeight: 1.6 }}>{msg.text}</div>
                     <div style={{ fontSize: '10px', color: 'var(--pt-gray-600)', marginTop: '4px' }}>
-                      {msg.sentAt?.toDate ? msg.sentAt.toDate().toLocaleTimeString(isAr ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' }) : ''}
+                      {(msg.sentAt?.toDate || msg.createdAt?.toDate) ? (msg.sentAt?.toDate ? msg.sentAt.toDate() : msg.createdAt.toDate()).toLocaleTimeString(isAr ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' }) : ''}
                     </div>
                   </div>
                 </div>

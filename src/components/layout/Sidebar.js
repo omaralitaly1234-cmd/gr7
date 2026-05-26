@@ -100,7 +100,7 @@ const clientMenuItems = [
   { key: 'aiSubscription', icon: '⭐', path: '/client/ai-subscription', translationKey: 'client.aiSubscription' },
 ];
 
-export default function Sidebar({ role = 'admin', locale = 'ar', collapsed = false, onToggle }) {
+export default function Sidebar({ role = 'admin', locale = 'ar', collapsed = false, onToggle, mobileOpen = false, onCloseMobile }) {
   const t = useTranslations();
   const pathname = usePathname();
 
@@ -121,7 +121,7 @@ export default function Sidebar({ role = 'admin', locale = 'ar', collapsed = fal
   };
 
   return (
-    <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''}`}>
+    <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''} ${mobileOpen ? styles.open : ''}`}>
       {/* Logo */}
       <div className={styles.logo}>
         <div className={styles.logoIcon}>⚡</div>
@@ -143,6 +143,7 @@ export default function Sidebar({ role = 'admin', locale = 'ar', collapsed = fal
             href={`/${locale}${item.path}`}
             className={`${styles.navItem} ${isActive(item.path) ? styles.active : ''}`}
             title={collapsed ? getLabel(item) : undefined}
+            onClick={() => { if (onCloseMobile) onCloseMobile(); }}
           >
             <span className={styles.navIcon}>{item.icon}</span>
             {!collapsed && <span className={styles.navLabel}>{getLabel(item)}</span>}

@@ -29,6 +29,7 @@ export default function TrainerLayout({ children }) {
   const params = useParams();
   const locale = params?.locale || 'ar';
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // Auth Guard — allow trainers and admins
   useEffect(() => {
@@ -55,17 +56,24 @@ export default function TrainerLayout({ children }) {
   return (
     <TenantProvider>
       <div className="app-layout">
+        {/* Mobile sidebar overlay */}
+        <div
+          className={`sidebar-overlay ${mobileOpen ? 'active' : ''}`}
+          onClick={() => setMobileOpen(false)}
+        />
         <Sidebar
           role="trainer"
           locale={locale}
           collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          mobileOpen={mobileOpen}
+          onCloseMobile={() => setMobileOpen(false)}
         />
         <main className={`main-content ${sidebarCollapsed ? 'collapsed' : ''}`}>
           <TrialBanner />
           <Header
             locale={locale}
-            onMenuToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+            onMenuToggle={() => setMobileOpen(prev => !prev)}
           />
           <div className="page-container">
             {children}

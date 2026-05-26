@@ -20,6 +20,7 @@ export default function SuperAdminLayout({ children }) {
   const router = useRouter();
   const locale = params?.locale || 'ar';
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const { user, loading, isSuperAdmin } = useAuth();
 
   // Auth Guard — ONLY super admins can access
@@ -53,6 +54,11 @@ export default function SuperAdminLayout({ children }) {
 
   return (
     <div className="app-layout">
+      {/* Mobile sidebar overlay */}
+      <div
+        className={`sidebar-overlay ${mobileOpen ? 'active' : ''}`}
+        onClick={() => setMobileOpen(false)}
+      />
       {/* Sidebar */}
       <aside
         style={{
@@ -62,12 +68,15 @@ export default function SuperAdminLayout({ children }) {
           borderInlineEnd: '1px solid rgba(245,197,24,0.1)',
           display: 'flex',
           flexDirection: 'column',
-          transition: 'width 0.25s ease',
+          transition: 'width 0.25s ease, transform 0.25s ease',
           position: 'fixed',
           top: 0,
           bottom: 0,
-          zIndex: 50,
+          zIndex: 100,
           [locale === 'ar' ? 'right' : 'left']: 0,
+          transform: typeof window !== 'undefined' && window.innerWidth <= 1024
+            ? (mobileOpen ? 'translateX(0)' : (locale === 'ar' ? 'translateX(100%)' : 'translateX(-100%)'))
+            : 'translateX(0)',
         }}
       >
         {/* Logo */}
@@ -109,6 +118,7 @@ export default function SuperAdminLayout({ children }) {
             <Link
               key={item.key}
               href={`/${locale}${item.path}`}
+              onClick={() => setMobileOpen(false)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -185,6 +195,23 @@ export default function SuperAdminLayout({ children }) {
           justifyContent: 'space-between',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            {/* Mobile hamburger button */}
+            <button
+              onClick={() => setMobileOpen(prev => !prev)}
+              className="super-admin-menu-btn"
+              style={{
+                display: 'none',
+                fontSize: '1.4rem',
+                padding: 'var(--space-2)',
+                color: 'var(--pt-gray-400)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              ☰
+            </button>
             <span style={{
               background: 'linear-gradient(135deg, var(--pt-gold), var(--pt-gold-dim))',
               color: 'var(--pt-black)',
@@ -207,6 +234,15 @@ export default function SuperAdminLayout({ children }) {
           {children}
         </div>
       </main>
+
+      {/* Super admin mobile styles */}
+      <style jsx global>{`
+        @media (max-width: 1024px) {
+          .super-admin-menu-btn {
+            display: flex !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

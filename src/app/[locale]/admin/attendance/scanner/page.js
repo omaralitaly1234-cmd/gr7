@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, addTenantDocument, updateTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, doc, runTransaction } from 'firebase/firestore';
+import { db } from '@/lib/firebase/config';
 
 export default function AttendanceScannerPage() {
   const t = useTranslations();
@@ -84,61 +85,78 @@ export default function AttendanceScannerPage() {
       return;
     }
 
-    // Check if already checked in today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const { data: existing } = await getTenantDocuments(tenantId, 'attendance', [
-      { field: 'memberId', operator: '==', value: member.id },
-      { field: 'checkIn', operator: '>=', value: Timestamp.fromDate(today) },
-    ]);
-
-    if (existing && existing.length > 0) {
-      setScanResult(t('attendance.alreadyCheckedIn'));
-      setResultType('warning');
-      return;
-    }
-
-    // Check session-based subscription
+    // Pre-resolve the active subscription (query outside the transaction — the
+    // transaction re-reads it by id for a consistent decrement).
+    let activeSubId = null;
     if (member.currentPlan?.type !== 'diamond') {
       const { data: activeSubs } = await getTenantDocuments(tenantId, 'subscriptions', [
         { field: 'memberId', operator: '==', value: member.id },
         { field: 'status', operator: '==', value: 'active' },
       ]);
-
-      const activeSub = activeSubs?.[0];
-      if (activeSub && activeSub.totalSessions !== null) {
-        if ((activeSub.remainingSessions || 0) <= 0) {
-          setScanResult(t('attendance.noSessionsLeft'));
-          setResultType('error');
-          return;
-        }
-        // Deduct session
-        await updateTenantDocument(tenantId, 'subscriptions', activeSub.id, {
-          usedSessions: (activeSub.usedSessions || 0) + 1,
-          remainingSessions: (activeSub.remainingSessions || 1) - 1,
-        });
-      }
+      activeSubId = activeSubs?.[0]?.id || null;
     }
 
-    // Log attendance
-    await addTenantDocument(tenantId, 'attendance', {
-      memberId: member.id,
-      memberName: member.fullName?.[locale] || member.fullName?.ar,
-      gender: member.gender,
-      checkIn: Timestamp.fromDate(new Date()),
-      checkOut: null,
-      duration: null,
-      method: 'qr_scan',
-      subscriptionId: member.currentPlan?.planId || '',
-      subscriptionStatus: member.status,
-      sessionDeducted: member.currentPlan?.sessions != null,
-    });
+    // Atomic check-in: a deterministic per-day attendance doc id makes the
+    // "already checked in today" guard, the session decrement, and the visit
+    // counter one transaction — so a rapid double-scan can't create two
+    // attendance rows or double-deduct a session.
+    const dateStr = new Date().toISOString().split('T')[0];
+    const attendanceRef = doc(db, `tenants/${tenantId}/attendance/${member.id}_${dateStr}`);
+    const memberRef = doc(db, `tenants/${tenantId}/members/${member.id}`);
+    const subRef = activeSubId ? doc(db, `tenants/${tenantId}/subscriptions/${activeSubId}`) : null;
 
-    // Update member last visit
-    await updateTenantDocument(tenantId, 'members', member.id, {
-      lastVisit: Timestamp.fromDate(new Date()),
-      totalVisits: (member.totalVisits || 0) + 1,
-    });
+    try {
+      await runTransaction(db, async (tx) => {
+        const attSnap = await tx.get(attendanceRef);
+        if (attSnap.exists()) throw new Error('already_checked_in');
+
+        let sessionDeducted = false;
+        if (subRef) {
+          const subSnap = await tx.get(subRef);
+          const sub = subSnap.exists() ? subSnap.data() : null;
+          if (sub && sub.totalSessions !== null) {
+            if ((sub.remainingSessions || 0) <= 0) throw new Error('no_sessions');
+            tx.update(subRef, {
+              usedSessions: (sub.usedSessions || 0) + 1,
+              remainingSessions: (sub.remainingSessions || 1) - 1,
+            });
+            sessionDeducted = true;
+          }
+        }
+
+        tx.set(attendanceRef, {
+          memberId: member.id,
+          memberName: member.fullName?.[locale] || member.fullName?.ar,
+          gender: member.gender,
+          checkIn: Timestamp.fromDate(new Date()),
+          method: 'qr_scan',
+          subscriptionId: activeSubId || member.currentPlan?.planId || '',
+          subscriptionStatus: member.status,
+          sessionDeducted,
+          createdAt: Timestamp.fromDate(new Date()),
+          updatedAt: Timestamp.fromDate(new Date()),
+        });
+        tx.update(memberRef, {
+          lastVisit: Timestamp.fromDate(new Date()),
+          totalVisits: (member.totalVisits || 0) + 1,
+        });
+      });
+    } catch (err) {
+      if (err.message === 'already_checked_in') {
+        setScanResult(t('attendance.alreadyCheckedIn'));
+        setResultType('warning');
+        return;
+      }
+      if (err.message === 'no_sessions') {
+        setScanResult(t('attendance.noSessionsLeft'));
+        setResultType('error');
+        return;
+      }
+      console.error('Check-in error:', err);
+      setScanResult(isAr ? 'خطأ في تسجيل الحضور' : 'Check-in error');
+      setResultType('error');
+      return;
+    }
 
     setScanResult(t('attendance.checkInSuccess'));
     setResultType('success');

@@ -77,9 +77,10 @@ export default function AdminDashboardPage() {
         return endDate && endDate <= sevenDaysLater && endDate >= todayStart;
       });
 
-      // Map expiring subs to member info
+      // Map expiring subs to member info via an id→member Map (O(1) lookups)
+      const memberById = new Map(members.map(m => [m.id, m]));
       const expiringWithNames = expiring.map(sub => {
-        const member = members.find(m => m.id === sub.memberId);
+        const member = memberById.get(sub.memberId);
         return { ...sub, memberName: member?.fullName?.[locale] || member?.fullName?.ar || '—', phone: member?.phone || '' };
       });
       setExpiringMembers(expiringWithNames.slice(0, 5));

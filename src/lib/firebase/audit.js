@@ -4,7 +4,7 @@
 // ============================================
 
 import { addDoc, collection, serverTimestamp, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from './config';
+import { db, auth } from './config';
 
 /**
  * Log an audit event (immutable — never updated or deleted)
@@ -52,6 +52,19 @@ export async function logAudit({
     // Audit should never break the app
     console.error('[AUDIT] Failed to log event:', error.message);
   }
+}
+
+/**
+ * Client-side convenience wrapper: fills userId/userEmail from the currently
+ * signed-in user so callers only pass the action details. Never throws.
+ */
+export async function logAuditClient({ action, entity, entityId, tenantId = null, userRole = '', details = {}, severity = 'info' }) {
+  const u = auth.currentUser;
+  return logAudit({
+    action, entity, entityId, tenantId, userRole, details, severity,
+    userId: u?.uid || '',
+    userEmail: u?.email || '',
+  });
 }
 
 // ==================== Query Helpers (Super Admin) ====================

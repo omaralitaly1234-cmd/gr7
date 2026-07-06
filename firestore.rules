@@ -113,8 +113,16 @@ service cloud.firestore {
         (!exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == null);
       
-      // Update: Super Admin or tenant owner only
-      allow update: if isSuperAdmin() || isTenantOwner(tenantId);
+      // Update: Super Admin (unrestricted) or tenant owner (profile fields ONLY).
+      // Owners must NOT be able to self-grant plan/features/limits/status —
+      // those are set exclusively via the payment/onboarding APIs (Admin SDK,
+      // which bypasses these rules). Without this restriction an owner could
+      // PATCH features.*=true, limits.maxMembers=-1, subscription.plan='annual'
+      // for free.
+      allow update: if isSuperAdmin() ||
+        (isTenantOwner(tenantId) &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['name', 'nameAr', 'nameEn', 'phone', 'address', 'logo', 'updatedAt']));
       
       // Delete: Super Admin only
       allow delete: if isSuperAdmin();
@@ -161,24 +169,70 @@ service cloud.firestore {
           (isTenantAdmin(tenantId) && isTenantActive(tenantId));
       }
 
-      // Trainer-managed sub-collections (diet plans, programs, body metrics)
-      match /dietPlans/{docId} {
-        allow read: if isSuperAdmin() || 
+      // Trainer-managed sub-collections (canonical snake_case names — must match
+      // the collection strings used in code; camelCase blocks previously matched
+      // nothing, so these writes fell through to the admin-only catch-all).
+      // Read: any active tenant member (client pages filter to their own docs).
+      // Write: trainers (and admins/owners, since isTenantTrainer includes them).
+      match /diet_plans/{docId} {
+        allow read: if isSuperAdmin() ||
           (belongsToTenant(tenantId) && isTenantActive(tenantId));
-        allow write: if isSuperAdmin() || 
+        allow write: if isSuperAdmin() ||
           (isTenantTrainer(tenantId) && isTenantActive(tenantId));
       }
-      match /trainingPrograms/{docId} {
-        allow read: if isSuperAdmin() || 
+      match /training_programs/{docId} {
+        allow read: if isSuperAdmin() ||
           (belongsToTenant(tenantId) && isTenantActive(tenantId));
-        allow write: if isSuperAdmin() || 
+        allow write: if isSuperAdmin() ||
           (isTenantTrainer(tenantId) && isTenantActive(tenantId));
       }
-      match /bodyMetrics/{docId} {
-        allow read: if isSuperAdmin() || 
+      match /measurements/{docId} {
+        allow read: if isSuperAdmin() ||
           (belongsToTenant(tenantId) && isTenantActive(tenantId));
-        allow write: if isSuperAdmin() || 
+        allow write: if isSuperAdmin() ||
           (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+      }
+      match /session_notes/{docId} {
+        allow read: if isSuperAdmin() ||
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() ||
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+      }
+      match /evaluations/{docId} {
+        allow read: if isSuperAdmin() ||
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() ||
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+      }
+      match /assessments/{docId} {
+        allow read: if isSuperAdmin() ||
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() ||
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+      }
+      match /injuries/{docId} {
+        allow read: if isSuperAdmin() ||
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() ||
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+      }
+      match /trainer_sessions/{docId} {
+        allow read: if isSuperAdmin() ||
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+        allow write: if isSuperAdmin() ||
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+      }
+
+      // Trainer <-> member chat. Trainers create messages client-side (this
+      // rule); members send via the Admin-SDK API (bypasses rules) so their
+      // memberId can't be spoofed. Any tenant member may read + mark-as-read.
+      match /messages/{docId} {
+        allow read: if isSuperAdmin() ||
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow create: if isSuperAdmin() ||
+          (isTenantTrainer(tenantId) && isTenantActive(tenantId));
+        allow update: if isSuperAdmin() ||
+          (belongsToTenant(tenantId) && isTenantActive(tenantId));
       }
 
       // Settings — only admin/owner can modify

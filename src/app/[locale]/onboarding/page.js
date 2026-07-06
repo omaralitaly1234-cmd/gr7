@@ -35,16 +35,9 @@ export default function OnboardingPage() {
     setLoading(true);
     setError('');
     try {
-      // Plan config
-      const planDefs = {
-        trial: { durationDays: 90, maxMembers: 100, maxTrainers: 3 },
-        monthly: { durationDays: 30, maxMembers: 300, maxTrainers: 5 },
-        quarterly: { durationDays: 90, maxMembers: 500, maxTrainers: 10 },
-        semi_annual: { durationDays: 180, maxMembers: 1000, maxTrainers: 20 },
-        annual: { durationDays: 365, maxMembers: -1, maxTrainers: -1 },
-      };
-      const planKey = selectedPlan && planDefs[selectedPlan] ? selectedPlan : 'trial';
-      const plan = planDefs[planKey];
+      // Plan config — single source of truth
+      const planKey = selectedPlan && PLAN_DEFINITIONS[selectedPlan] ? selectedPlan : 'trial';
+      const plan = PLAN_DEFINITIONS[planKey];
       const isTrial = planKey === 'trial';
 
       // 1. Create user with Firebase Auth (client-side) — registers as 'member' to pass Firestore rules
@@ -83,13 +76,7 @@ export default function OnboardingPage() {
           lastPaymentDate: null,
           nextPaymentDate: isTrial ? null : Timestamp.fromDate(endDate),
         },
-        features: {
-          ai_nutrition: !isTrial, ai_workout: !isTrial, ai_churn: !isTrial,
-          ai_sentiment: !isTrial, ai_pricing: !isTrial, ai_chatbot: !isTrial,
-          ai_body_analysis: !isTrial, ai_social: !isTrial,
-          advanced_analytics: true, spa_module: true, inventory_module: true,
-          hr_module: true, sms_notifications: true,
-        },
+        features: { ...plan.features },
         limits: { maxMembers: plan.maxMembers, maxTrainers: plan.maxTrainers },
       });
 

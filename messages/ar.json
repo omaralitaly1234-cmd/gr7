@@ -39,7 +39,13 @@
     "name": "الاسم",
     "details": "التفاصيل",
     "total": "الإجمالي",
-    "amount": "المبلغ"
+    "amount": "المبلغ",
+    "refresh": "تحديث",
+    "type": "النوع",
+    "select": "اختر",
+    "viewAll": "عرض الكل",
+    "send": "إرسال",
+    "description": "الوصف"
   },
   "auth": {
     "login": "تسجيل الدخول",
@@ -64,7 +70,18 @@
     "details": "تفاصيل الاشتراك",
     "startDate": "تاريخ البداية",
     "endDate": "تاريخ الانتهاء",
-    "daysLeft": "الأيام المتبقية"
+    "daysLeft": "الأيام المتبقية",
+    "selectMember": "اختر العضو",
+    "unfreeze": "إلغاء التجميد",
+    "plan": "الخطة",
+    "freezeReason": "سبب التجميد",
+    "sessions": "حصص",
+    "newSubscription": "اشتراك جديد",
+    "gold": "ذهبي",
+    "diamond": "ماسي",
+    "remainingDays": "الأيام المتبقية",
+    "freezeDays": "أيام التجميد",
+    "remainingSessions": "الحصص المتبقية"
   },
   "sidebar": {
     "dashboard": "لوحة التحكم",
@@ -119,7 +136,14 @@
     "assessForm": "تقييم العميل",
     "injuries": "سجل الإصابات",
     "templates": "قوالب التمرين",
-    "aiTools": "🤖 أدوات AI"
+    "aiTools": "🤖 أدوات AI",
+    "createDietPlan": "إنشاء نظام غذائي",
+    "createProgram": "إنشاء برنامج تدريب",
+    "schedule": "الجدول",
+    "totalClients": "إجمالي العملاء",
+    "todaySessions": "حصص اليوم",
+    "rating": "التقييم",
+    "assignToClient": "تخصيص للعميل"
   },
   "client": {
     "mySubscription": "اشتراكي",
@@ -169,7 +193,11 @@
     "todayRevenue": "إيرادات اليوم",
     "expiringSubscriptions": "الاشتراكات المنتهية قريباً",
     "recentPayments": "آخر المدفوعات",
-    "renew": "تجديد"
+    "renew": "تجديد",
+    "monthRevenue": "إيرادات الشهر",
+    "frozenMembers": "العضويات المجمدة",
+    "genderSplit": "توزيع الأعضاء",
+    "todayActivity": "نشاط اليوم"
   },
   "members": {
     "title": "إدارة الأعضاء",
@@ -216,7 +244,8 @@
       "muscle_gain": "بناء عضلات",
       "fitness": "لياقة عامة",
       "flexibility": "مرونة",
-      "endurance": "تحمّل"
+      "endurance": "تحمّل",
+      "rehabilitation": "تأهيل"
     }
   },
   "spa": {
@@ -227,18 +256,62 @@
     "bookNow": "احجز الآن",
     "selectDate": "اختر التاريخ",
     "selectTime": "اختر الوقت",
-    "confirmBooking": "تأكيد الحجز"
+    "confirmBooking": "تأكيد الحجز",
+    "newBooking": "حجز جديد",
+    "service": "الخدمة"
   },
   "finance": {
     "totalRevenue": "إجمالي الإيرادات",
     "totalExpenses": "إجمالي المصروفات",
     "netProfit": "صافي الربح",
-    "profitMargin": "هامش الربح"
+    "profitMargin": "هامش الربح",
+    "amount": "المبلغ",
+    "invoiceNumber": "رقم الفاتورة",
+    "paymentType": "نوع الدفعة",
+    "netAmount": "الصافي",
+    "paymentMethod": "طريقة الدفع",
+    "printReceipt": "طباعة إيصال",
+    "paymentRecorded": "تم تسجيل الدفعة بنجاح",
+    "todayRevenue": "إيرادات اليوم",
+    "monthlyRevenue": "إيرادات الشهر",
+    "cash": "كاش",
+    "visa": "فيزا",
+    "bankTransfer": "تحويل بنكي",
+    "discount": "خصم",
+    "revenueByCategory": "الإيرادات حسب الفئة",
+    "revenueByMethod": "الإيرادات حسب طريقة الدفع"
   },
   "settings": {
     "gymInfo": "معلومات الجيم",
     "pricing": "الأسعار",
     "templates": "القوالب",
-    "system": "النظام"
+    "system": "النظام",
+    "title": "الإعدادات",
+    "gymPhone": "هاتف الجيم",
+    "gymAddress": "العنوان",
+    "operatingHours": "مواعيد العمل",
+    "notifications": "الإشعارات"
+  },
+  "attendance": {
+    "title": "سجل الحضور",
+    "scanQR": "مسح كود QR",
+    "totalVisitsToday": "إجمالي الزيارات اليوم",
+    "checkIn": "تسجيل دخول",
+    "checkOut": "تسجيل خروج",
+    "subscriptionExpired": "الاشتراك منتهي",
+    "subscriptionFrozen": "الاشتراك مجمد",
+    "alreadyCheckedIn": "تم تسجيل الدخول مسبقاً اليوم",
+    "noSessionsLeft": "لا توجد حصص متبقية",
+    "checkInSuccess": "تم تسجيل الدخول بنجاح",
+    "scannerReady": "الماسح جاهز — وجّه الكاميرا نحو كود QR",
+    "todayAttendance": "حضور اليوم"
+  },
+  "offers": {
+    "title": "العروض والخصومات",
+    "newOffer": "عرض جديد",
+    "discountPercent": "نسبة الخصم",
+    "discountAmount": "مبلغ الخصم",
+    "validFrom": "صالح من",
+    "validTo": "صالح حتى"
   }
 }

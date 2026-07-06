@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { addTenantDocument, getTenantCollectionCount, getTenantDocuments, setDocument } from '@/lib/firebase/firestore';
+import { nextSequentialNumber } from '@/lib/firebase/counters';
+import { logAuditClient } from '@/lib/firebase/audit';
 import { useTenant } from '@/context/TenantContext';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -68,13 +70,11 @@ export default function NewMemberPage() {
   };
 
   const generateMemberNumber = async () => {
-    const year = new Date().getFullYear();
-    try {
-      const { count } = await getTenantCollectionCount(tenantId, 'members');
-      return `PT-${year}-${String(count + 1).padStart(4, '0')}`;
-    } catch {
-      return `PT-${year}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
-    }
+    // Atomic, unique, monotonic membership number (seeded from the current count
+    // the first time the counter is created so it won't collide with existing
+    // pre-counter members). Replaces the racy count+1 / random fallback.
+    const { count } = await getTenantCollectionCount(tenantId, 'members');
+    return nextSequentialNumber(tenantId, 'members', 'PT', count || 0);
   };
 
   const handleSubmit = async () => {
@@ -146,7 +146,7 @@ export default function NewMemberPage() {
         uid: memberUid,
         currentPlan: plan ? { planId: plan.id, planName: plan.name[locale], type: plan.type, endDate: Timestamp.fromDate(endDate) } : null,
         planName: plan ? plan.name[locale] : '',
-        endDate: plan ? endDate.toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-US') : '',
+        endDate: plan ? Timestamp.fromDate(endDate) : null, // proper Timestamp (was a lossy locale string)
         assignedTrainer: (() => { const tr = trainers.find(t => t.id === formData.assignedTrainer); return tr ? (tr.uid || formData.assignedTrainer) : null; })(),
         assignedTrainerName: (() => { const tr = trainers.find(t => t.id === formData.assignedTrainer); return tr ? tr.name : null; })(),
         assignedTrainerDocId: formData.assignedTrainer || null,
@@ -204,6 +204,7 @@ export default function NewMemberPage() {
         });
       }
 
+      logAuditClient({ action: 'create', entity: 'member', entityId: memberId, tenantId, details: { description: { en: `Created member ${memberNumber}`, ar: `إنشاء عضو ${memberNumber}` } } });
       toast.success(t('members.memberCreated'));
       router.push(`/${locale}/admin/members`);
     } catch (err) {

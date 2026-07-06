@@ -100,13 +100,30 @@ const clientMenuItems = [
   { key: 'aiSubscription', icon: '⭐', path: '/client/ai-subscription', translationKey: 'client.aiSubscription' },
 ];
 
+// Non-functional stub / mockup pages (render hardcoded or no data). Hidden from
+// navigation so users don't hit dead ends, but the page files are kept for the
+// roadmap. To re-expose a page, remove its path from this set.
+const HIDDEN_STUB_PATHS = new Set([
+  // admin mock / non-persisting
+  '/admin/ai-dashboard', '/admin/ai-settings', '/admin/insights',
+  // trainer mock (inert save/apply buttons)
+  '/trainer/plan-builder', '/trainer/templates',
+  // client stubs (no Firestore connection)
+  '/client/achievements', '/client/challenges', '/client/community',
+  '/client/goals', '/client/tracker', '/client/records', '/client/streaks',
+  '/client/supplements', '/client/sleep', '/client/bookings/spa',
+  '/client/bookings/classes', '/client/workout', '/client/rate-trainer',
+  '/client/transformation', '/client/exercises', '/client/nutrition',
+  '/client/workout-stats', '/client/leaderboard', '/client/recovery',
+]);
+
 export default function Sidebar({ role = 'admin', locale = 'ar', collapsed = false, onToggle, mobileOpen = false, onCloseMobile }) {
   const t = useTranslations();
   const pathname = usePathname();
 
-  const menuItems = role === 'admin' ? adminMenuItems
+  const menuItems = (role === 'admin' ? adminMenuItems
     : role === 'trainer' ? trainerMenuItems
-    : clientMenuItems;
+    : clientMenuItems).filter((item) => !HIDDEN_STUB_PATHS.has(item.path));
 
   const getLabel = (item) => {
     if (item.translationKey) {

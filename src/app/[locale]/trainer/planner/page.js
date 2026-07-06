@@ -31,7 +31,7 @@ export default function TrainerWeeklyPlannerPage() {
       if (!tenantId || !user) return;
       setLoading(true);
       try {
-        const { data } = await getTenantDocuments(tenantId, 'trainer-sessions',
+        const { data } = await getTenantDocuments(tenantId, 'trainer_sessions',
           [{ field: 'trainerId', operator: '==', value: user.uid }]);
         setSessions(data || []);
       } catch (err) { console.error(err); }

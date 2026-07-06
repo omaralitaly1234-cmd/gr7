@@ -27,10 +27,8 @@ export default function TrainerMessagesPage() {
     async function load() {
       if (!tenantId || !user) { setLoading(false); return; }
       try {
-        const { data: members } = await getTenantDocuments(tenantId, 'members');
-        const myClients = (members || []).filter(m => m.assignedTrainer === user.uid || m.assignedTrainerDocId === user.uid);
-        myClients.sort((a, b) => (a.fullName?.ar || '').localeCompare(b.fullName?.ar || ''));
-        setClients(myClients);
+        const { data: myClients } = await getTrainerClients(tenantId, user.uid);
+        setClients(myClients || []);
       } catch (err) { console.error(err); }
       setLoading(false);
     }
@@ -43,9 +41,10 @@ export default function TrainerMessagesPage() {
       const client = clients[selectedClient];
       if (!client) return;
       try {
-        // Load all messages for this member - simple query, no compound index needed
-        const { data } = await getTenantDocuments(tenantId, 'messages');
-        const filtered = (data || []).filter(m => m.memberId === client.id);
+        // Server-side filter to this client's messages (single-field, auto-indexed)
+        const { data } = await getTenantDocuments(tenantId, 'messages',
+          [{ field: 'memberId', operator: '==', value: client.id }]);
+        const filtered = data || [];
         // Sort by time
         filtered.sort((a, b) => {
           const ta = a.sentAt?.toDate ? a.sentAt.toDate().getTime() : a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;

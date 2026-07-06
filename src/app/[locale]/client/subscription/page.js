@@ -3,7 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, updateTenantDocument, addTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments, addTenantDocument } from '@/lib/firebase/firestore';
+import { authPost } from '@/lib/authenticated-fetch';
+import { formatDate } from '@/lib/format';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -154,7 +156,7 @@ export default function ClientSubscriptionPage() {
                 : req.status === 'approved'
                 ? { icon: '✅', label: isAr ? 'تمت الموافقة' : 'Approved', color: 'var(--pt-success)', bg: 'rgba(0,200,83,0.1)', border: 'rgba(0,200,83,0.3)' }
                 : { icon: '❌', label: isAr ? 'مرفوض' : 'Rejected', color: 'var(--pt-danger)', bg: 'rgba(255,82,82,0.1)', border: 'rgba(255,82,82,0.3)' };
-              const reqDate = req.requestedAt ? new Date(req.requestedAt).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : (req.createdAt?.toDate ? req.createdAt.toDate().toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-');
+              const reqDate = formatDate(req.requestedAt || req.createdAt, locale, { year: 'numeric', month: 'short', day: 'numeric' });
               return (
                 <div key={req.id || i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-3) var(--space-4)', background: statusConfig.bg, border: `1px solid ${statusConfig.border}`, borderRadius: 'var(--radius-md)' }}>
                   <div>
@@ -238,12 +240,14 @@ export default function ClientSubscriptionPage() {
               <button className="btn btn-primary" disabled={actionLoading || freezeDays < 1} onClick={async () => {
                 setActionLoading(true);
                 try {
-                  const newEnd = new Date(toDate(subscription.endDate).getTime() + freezeDays * 86400000);
-                  await updateTenantDocument(tenantId, 'subscriptions', subscription.id, { freezeDaysUsed: freezeUsed + freezeDays, endDate: newEnd, lastFreezeDate: new Date().toISOString() });
+                  const res = await authPost('/api/member/subscription/freeze', { days: freezeDays });
+                  const out = await res.json().catch(() => ({}));
+                  if (!res.ok) throw new Error(out.message || 'freeze_failed');
+                  const newEnd = out.endDate ? new Date(out.endDate) : subscription.endDate;
                   toast.success(isAr ? `تم تجميد ${freezeDays} يوم بنجاح` : `${freezeDays} days frozen successfully`);
                   setShowFreezeModal(false);
-                  setSubscription(prev => ({ ...prev, freezeDaysUsed: freezeUsed + freezeDays, endDate: newEnd }));
-                } catch (err) { console.error(err); toast.error(isAr ? 'حدث خطأ' : 'Error'); }
+                  setSubscription(prev => ({ ...prev, freezeDaysUsed: out.freezeDaysUsed ?? (freezeUsed + freezeDays), endDate: newEnd }));
+                } catch (err) { console.error(err); toast.error(err.message || (isAr ? 'حدث خطأ' : 'Error')); }
                 setActionLoading(false);
               }}>{'❄️ ' + (isAr ? 'تجميد' : 'Freeze')}</button>
             </div>
@@ -270,12 +274,13 @@ export default function ClientSubscriptionPage() {
               <button className="btn btn-primary" disabled={actionLoading || !guestName.trim()} onClick={async () => {
                 setActionLoading(true);
                 try {
-                  await addTenantDocument(tenantId, 'guest-invitations', { memberId: memberData.id, memberName: memberData.fullName, subscriptionId: subscription.id, guestName: guestName.trim(), guestPhone: guestPhone.trim(), date: new Date().toISOString(), status: 'active' });
-                  await updateTenantDocument(tenantId, 'subscriptions', subscription.id, { invitationsUsed: guestsUsed + 1 });
+                  const res = await authPost('/api/member/subscription/guest', { guestName: guestName.trim(), guestPhone: guestPhone.trim() });
+                  const out = await res.json().catch(() => ({}));
+                  if (!res.ok) throw new Error(out.message || 'guest_failed');
                   toast.success(isAr ? 'تم إرسال الدعوة بنجاح' : 'Guest invitation sent');
                   setShowGuestModal(false);
                   setGuestName(''); setGuestPhone('');
-                  setSubscription(prev => ({ ...prev, invitationsUsed: guestsUsed + 1 }));
+                  setSubscription(prev => ({ ...prev, invitationsUsed: out.invitationsUsed ?? (guestsUsed + 1) }));
                 } catch (err) { console.error(err); toast.error(isAr ? 'حدث خطأ' : 'Error'); }
                 setActionLoading(false);
               }}>{'👥 ' + (isAr ? 'إرسال الدعوة' : 'Send Invite')}</button>

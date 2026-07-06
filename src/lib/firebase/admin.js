@@ -177,4 +177,44 @@ export async function sendTopicNotification(topic, title, body, data = {}) {
   }
 }
 
+// === Audit Logging (server-side, Admin SDK — writes to root auditLogs) ===
+// Mirror of lib/firebase/audit.js logAudit() but for API routes, which run
+// with Admin credentials and cannot use the client SDK. Never throws — audit
+// logging must not break the primary operation.
+export async function logAuditServer({
+  action,
+  entity,
+  entityId = '',
+  tenantId = null,
+  userId = '',
+  userEmail = '',
+  userRole = '',
+  details = {},
+  severity = 'info',
+}) {
+  try {
+    const db = getAdminDb();
+    if (!db) return;
+    const { Timestamp } = require('firebase-admin/firestore');
+    await db.collection('auditLogs').add({
+      action,
+      entity,
+      entityId,
+      tenantId,
+      userId,
+      userEmail,
+      userRole,
+      details: {
+        description: details.description || {},
+        before: details.before || null,
+        after: details.after || null,
+      },
+      severity,
+      createdAt: Timestamp.now(),
+    });
+  } catch (error) {
+    console.error('[AUDIT] server log failed:', error.message);
+  }
+}
+
 export default getAdmin;

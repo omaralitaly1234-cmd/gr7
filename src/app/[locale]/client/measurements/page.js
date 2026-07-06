@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, addTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments } from '@/lib/firebase/firestore';
+import { authPost } from '@/lib/authenticated-fetch';
 import { useMemberData } from '@/lib/hooks/useMemberData';
 import toast from 'react-hot-toast';
 
@@ -35,7 +36,8 @@ export default function ClientMeasurementsPage() {
   const handleAdd = async () => {
     if (!tenantId || !memberData) return;
     try {
-      await addTenantDocument(tenantId, 'measurements', { memberId: memberData.id, ...Object.fromEntries(Object.entries(newEntry).map(([k, v]) => [k, v ? Number(v) : null])) });
+      const res = await authPost('/api/member/measurements', newEntry);
+      if (!res.ok) throw new Error('save_failed');
       toast.success(isAr ? 'تم تسجيل القياس' : 'Measurement saved');
       setShowAddModal(false);
       setNewEntry({ weight: '', chest: '', waist: '', hips: '', arms: '', thighs: '', shoulders: '', bodyFat: '' });

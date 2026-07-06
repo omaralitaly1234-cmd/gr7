@@ -39,7 +39,13 @@
     "name": "Name",
     "details": "Details",
     "total": "Total",
-    "amount": "Amount"
+    "amount": "Amount",
+    "refresh": "Refresh",
+    "type": "Type",
+    "select": "Select",
+    "viewAll": "View All",
+    "send": "Send",
+    "description": "Description"
   },
   "auth": {
     "login": "Login",
@@ -64,7 +70,18 @@
     "details": "Subscription Details",
     "startDate": "Start Date",
     "endDate": "End Date",
-    "daysLeft": "Days Left"
+    "daysLeft": "Days Left",
+    "selectMember": "Select Member",
+    "unfreeze": "Unfreeze",
+    "plan": "Plan",
+    "freezeReason": "Freeze Reason",
+    "sessions": "Sessions",
+    "newSubscription": "New Subscription",
+    "gold": "Gold",
+    "diamond": "Diamond",
+    "remainingDays": "Remaining Days",
+    "freezeDays": "Freeze Days",
+    "remainingSessions": "Remaining Sessions"
   },
   "sidebar": {
     "dashboard": "Dashboard",
@@ -119,7 +136,14 @@
     "assessForm": "Client Assessment",
     "injuries": "Injury Log",
     "templates": "Workout Templates",
-    "aiTools": "🤖 AI Tools"
+    "aiTools": "🤖 AI Tools",
+    "createDietPlan": "Create Diet Plan",
+    "createProgram": "Create Training Program",
+    "schedule": "Schedule",
+    "totalClients": "Total Clients",
+    "todaySessions": "Today's Sessions",
+    "rating": "Rating",
+    "assignToClient": "Assign to Client"
   },
   "client": {
     "mySubscription": "My Subscription",
@@ -169,7 +193,11 @@
     "todayRevenue": "Today's Revenue",
     "expiringSubscriptions": "Expiring Subscriptions",
     "recentPayments": "Recent Payments",
-    "renew": "Renew"
+    "renew": "Renew",
+    "monthRevenue": "Monthly Revenue",
+    "frozenMembers": "Frozen Memberships",
+    "genderSplit": "Gender Distribution",
+    "todayActivity": "Today's Activity"
   },
   "members": {
     "title": "Member Management",
@@ -216,7 +244,8 @@
       "muscle_gain": "Muscle Gain",
       "fitness": "General Fitness",
       "flexibility": "Flexibility",
-      "endurance": "Endurance"
+      "endurance": "Endurance",
+      "rehabilitation": "Rehabilitation"
     }
   },
   "spa": {
@@ -227,18 +256,62 @@
     "bookNow": "Book Now",
     "selectDate": "Select Date",
     "selectTime": "Select Time",
-    "confirmBooking": "Confirm Booking"
+    "confirmBooking": "Confirm Booking",
+    "newBooking": "New Booking",
+    "service": "Service"
   },
   "finance": {
     "totalRevenue": "Total Revenue",
     "totalExpenses": "Total Expenses",
     "netProfit": "Net Profit",
-    "profitMargin": "Profit Margin"
+    "profitMargin": "Profit Margin",
+    "amount": "Amount",
+    "invoiceNumber": "Invoice Number",
+    "paymentType": "Payment Type",
+    "netAmount": "Net Amount",
+    "paymentMethod": "Payment Method",
+    "printReceipt": "Print Receipt",
+    "paymentRecorded": "Payment recorded successfully",
+    "todayRevenue": "Today's Revenue",
+    "monthlyRevenue": "Monthly Revenue",
+    "cash": "Cash",
+    "visa": "Visa",
+    "bankTransfer": "Bank Transfer",
+    "discount": "Discount",
+    "revenueByCategory": "Revenue by Category",
+    "revenueByMethod": "Revenue by Method"
   },
   "settings": {
     "gymInfo": "Gym Info",
     "pricing": "Pricing",
     "templates": "Templates",
-    "system": "System"
+    "system": "System",
+    "title": "Settings",
+    "gymPhone": "Phone",
+    "gymAddress": "Address",
+    "operatingHours": "Operating Hours",
+    "notifications": "Notifications"
+  },
+  "attendance": {
+    "title": "Attendance Log",
+    "scanQR": "Scan QR Code",
+    "totalVisitsToday": "Total visits today",
+    "checkIn": "Check In",
+    "checkOut": "Check Out",
+    "subscriptionExpired": "Subscription expired",
+    "subscriptionFrozen": "Subscription frozen",
+    "alreadyCheckedIn": "Already checked in today",
+    "noSessionsLeft": "No sessions remaining",
+    "checkInSuccess": "Check-in successful",
+    "scannerReady": "Scanner ready — point camera at QR code",
+    "todayAttendance": "Today's Attendance"
+  },
+  "offers": {
+    "title": "Offers & Discounts",
+    "newOffer": "New Offer",
+    "discountPercent": "Discount Percentage",
+    "discountAmount": "Discount Amount",
+    "validFrom": "Valid From",
+    "validTo": "Valid To"
   }
 }

@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments, addTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
+import { nextSequentialNumber } from '@/lib/firebase/counters';
+import { logAuditClient } from '@/lib/firebase/audit';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -92,7 +94,7 @@ export default function PaymentsPage() {
     const net = Number(payForm.amount) - Number(payForm.discount);
 
     try {
-      await addTenantDocument(tenantId, 'payments', {
+      const { id: payId } = await addTenantDocument(tenantId, 'payments', {
         memberId: payForm.memberId,
         memberName: member?.fullName?.[locale] || member?.fullName?.ar || '',
         type: payForm.type,
@@ -103,9 +105,10 @@ export default function PaymentsPage() {
         status: 'completed',
         notes: payForm.notes,
         receivedBy: 'admin',
-        invoiceNumber: `INV-${new Date().getFullYear()}-${String(payments.length + 1).padStart(4, '0')}`,
+        invoiceNumber: await nextSequentialNumber(tenantId, 'invoices', 'INV', payments.length),
       });
 
+      logAuditClient({ action: 'create', entity: 'payment', entityId: payId, tenantId, details: { description: { en: `Recorded ${payForm.type} payment`, ar: `تسجيل دفعة ${payForm.type}` }, after: { amount: net, method: payForm.method } } });
       toast.success(t('finance.paymentRecorded'));
       setShowNewPayment(false);
       setPayForm({ memberId: '', type: 'subscription', amount: '', discount: 0, method: 'cash', notes: '' });

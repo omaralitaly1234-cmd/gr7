@@ -2,14 +2,6 @@
   "indexes": [
     {
       "collectionGroup": "members",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "membershipStatus", "order": "ASCENDING" },
-        { "fieldPath": "membershipEnd", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "members",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
@@ -21,15 +13,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "memberId", "order": "ASCENDING" },
-        { "fieldPath": "checkInTime", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "finances",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "type", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "DESCENDING" }
+        { "fieldPath": "checkIn", "order": "DESCENDING" }
       ]
     },
     {
@@ -106,27 +90,35 @@
       ]
     },
     {
-      "collectionGroup": "classes",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "isActive", "order": "ASCENDING" },
-        { "fieldPath": "schedule.dayOfWeek", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "dietPlans",
-      "queryScope": "COLLECTION_GROUP",
+      "collectionGroup": "diet_plans",
+      "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "trainerId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "trainingPrograms",
-      "queryScope": "COLLECTION_GROUP",
+      "collectionGroup": "training_programs",
+      "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "trainerId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "measurements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "memberId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "trainer_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "trainerId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
       ]
     }
   ],

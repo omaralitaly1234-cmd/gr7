@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments, addTenantDocument, updateTenantDocument } from '@/lib/firebase/firestore';
+import { nextSequentialNumber } from '@/lib/firebase/counters';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -93,7 +94,7 @@ export default function SpaPage() {
         netAmount: bookForm.price,
         method: bookForm.paymentMethod,
         status: 'completed',
-        invoiceNumber: `SPA-${new Date().getFullYear()}-${String(bookings.length + 1).padStart(4, '0')}`,
+        invoiceNumber: await nextSequentialNumber(tenantId, 'spa_invoices', 'SPA', bookings.length),
       });
 
       toast.success(isAr ? 'تم الحجز بنجاح' : 'Booking confirmed');

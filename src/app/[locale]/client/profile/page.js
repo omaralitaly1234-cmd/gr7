@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { useMemberData } from '@/lib/hooks/useMemberData';
-import { updateTenantDocument } from '@/lib/firebase/firestore';
+import { authPost } from '@/lib/authenticated-fetch';
 import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
 
@@ -48,18 +48,19 @@ export default function ClientProfilePage() {
   const handleSave = async () => {
     if (!tenantId || !memberData?.id || !form) return;
     try {
-      await updateTenantDocument(tenantId, 'members', memberData.id, {
+      const res = await authPost('/api/member/profile', {
         fullName: { ar: form.nameAr, en: form.nameEn },
         phone: form.phone,
         address: form.address,
         dateOfBirth: form.dob,
         bloodType: form.bloodType,
-        height: form.height ? Number(form.height) : null,
-        weight: form.weight ? Number(form.weight) : null,
+        height: form.height,
+        weight: form.weight,
         fitnessGoal: form.fitnessGoal,
         medicalNotes: form.medicalNotes,
         emergencyContact: { name: form.emergencyName, phone: form.emergencyPhone },
       });
+      if (!res.ok) throw new Error('save_failed');
       setSaved(true);
       toast.success(isAr ? 'تم الحفظ بنجاح' : 'Saved successfully');
       setTimeout(() => setSaved(false), 3000);

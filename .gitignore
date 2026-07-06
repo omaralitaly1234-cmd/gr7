@@ -42,3 +42,5 @@ gr7-system-firebase-adminsdk*
 *.png
 implementation_plan.md
 advanced_specifications.md
+# DB backups (contain member PII - never commit)
+_db-backups/

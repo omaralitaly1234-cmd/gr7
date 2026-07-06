@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, addTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments } from '@/lib/firebase/firestore';
+import { authPost } from '@/lib/authenticated-fetch';
 import { useMemberData } from '@/lib/hooks/useMemberData';
 import toast from 'react-hot-toast';
 
@@ -64,7 +65,8 @@ export default function ClientCheckInPage() {
   const handleSubmit = async () => {
     if (!tenantId || !memberData) return;
     try {
-      await addTenantDocument(tenantId, 'checkins', { memberId: memberData.id, mood, energy, sleep, soreness, date: new Date().toISOString().split('T')[0] });
+      const res = await authPost('/api/member/checkin', { mood, energy, sleep, soreness });
+      if (!res.ok) throw new Error('save_failed');
       toast.success(isAr ? 'تم تسجيل الحالة' : 'Check-in saved');
       setSubmitted(true);
     } catch (err) { console.error(err); toast.error(isAr ? 'حدث خطأ' : 'Error'); }

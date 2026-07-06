@@ -1,7 +1,7 @@
 // Payment Confirmation API — Server-Side (Admin SDK)
 // Only Super Admin can confirm/reject payments
 import { verifyApiAuth } from '@/lib/api-auth';
-import { getAdminDb } from '@/lib/firebase/admin';
+import { getAdminDb, logAuditServer } from '@/lib/firebase/admin';
 import { NextResponse } from 'next/server';
 
 export async function POST(request) {
@@ -80,6 +80,18 @@ export async function POST(request) {
         }
       }
 
+      await logAuditServer({
+        action: 'payment_confirm',
+        entity: 'payment',
+        entityId: paymentId,
+        tenantId: payment.tenantId || null,
+        userId: auth.uid,
+        userEmail: auth.email || '',
+        userRole: 'superadmin',
+        severity: 'warning',
+        details: { description: { en: `Confirmed payment ${paymentId} (${payment.amount || '?'})`, ar: `تأكيد دفعة ${paymentId}` }, after: { status: 'confirmed' } },
+      });
+
       return NextResponse.json({ success: true, message: 'Payment confirmed and subscription activated' });
     }
 
@@ -89,6 +101,18 @@ export async function POST(request) {
         rejectedBy: auth.uid,
         rejectedAt: Timestamp.now(),
         rejectionReason: body.reason || '',
+      });
+
+      await logAuditServer({
+        action: 'payment_reject',
+        entity: 'payment',
+        entityId: paymentId,
+        tenantId: payment.tenantId || null,
+        userId: auth.uid,
+        userEmail: auth.email || '',
+        userRole: 'superadmin',
+        severity: 'warning',
+        details: { description: { en: `Rejected payment ${paymentId}`, ar: `رفض دفعة ${paymentId}` }, after: { status: 'rejected', reason: body.reason || '' } },
       });
 
       return NextResponse.json({ success: true, message: 'Payment rejected' });

@@ -1,18 +1,16 @@
 // Gym Owner Registration API — Server-Side (Admin SDK)
 // This route handles the onboarding flow securely
 import { NextResponse } from 'next/server';
-
-// Server-side plan definitions (avoid importing 'use client' module)
-const SERVER_PLAN_DEFS = {
-  trial: { durationDays: 90, maxMembers: 100, maxTrainers: 3, features: { ai_nutrition: false, ai_workout: false, ai_churn: false, ai_sentiment: false, ai_pricing: false, ai_chatbot: false, ai_body_analysis: false, ai_social: false, advanced_analytics: true, spa_module: true, inventory_module: true, hr_module: true, sms_notifications: true } },
-  monthly: { durationDays: 30, maxMembers: 300, maxTrainers: 5, features: { ai_nutrition: true, ai_workout: true, ai_churn: true, ai_sentiment: true, ai_pricing: true, ai_chatbot: true, ai_body_analysis: true, ai_social: true, advanced_analytics: true, spa_module: true, inventory_module: true, hr_module: true, sms_notifications: true } },
-  quarterly: { durationDays: 90, maxMembers: 500, maxTrainers: 10, features: { ai_nutrition: true, ai_workout: true, ai_churn: true, ai_sentiment: true, ai_pricing: true, ai_chatbot: true, ai_body_analysis: true, ai_social: true, advanced_analytics: true, spa_module: true, inventory_module: true, hr_module: true, sms_notifications: true } },
-  semi_annual: { durationDays: 180, maxMembers: 1000, maxTrainers: 20, features: { ai_nutrition: true, ai_workout: true, ai_churn: true, ai_sentiment: true, ai_pricing: true, ai_chatbot: true, ai_body_analysis: true, ai_social: true, advanced_analytics: true, spa_module: true, inventory_module: true, hr_module: true, sms_notifications: true } },
-  annual: { durationDays: 365, maxMembers: -1, maxTrainers: -1, features: { ai_nutrition: true, ai_workout: true, ai_churn: true, ai_sentiment: true, ai_pricing: true, ai_chatbot: true, ai_body_analysis: true, ai_social: true, advanced_analytics: true, spa_module: true, inventory_module: true, hr_module: true, sms_notifications: true } },
-};
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limiter';
+import { PLAN_DEFINITIONS } from '@/lib/plans';
 
 export async function POST(request) {
   try {
+    // Rate limit public registration by IP — prevents automated account-creation abuse
+    const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'anon';
+    const rl = checkRateLimit(`onboarding:${ip}`, 5, 60000);
+    if (rl.limited) return rateLimitResponse(rl.retryAfter);
+
     const body = await request.json();
     const { email, password, displayName, phone, lang, gymName, gymNameAr, gymNameEn, addressAr, addressEn, selectedPlan } = body;
 
@@ -35,8 +33,8 @@ export async function POST(request) {
     }
 
     // Resolve plan — default to trial
-    const planKey = selectedPlan && SERVER_PLAN_DEFS[selectedPlan] ? selectedPlan : 'trial';
-    const plan = SERVER_PLAN_DEFS[planKey];
+    const planKey = selectedPlan && PLAN_DEFINITIONS[selectedPlan] ? selectedPlan : 'trial';
+    const plan = PLAN_DEFINITIONS[planKey];
     const isTrial = planKey === 'trial';
 
     console.log('[Onboarding API] Plan resolved:', planKey);
@@ -123,6 +121,19 @@ export async function POST(request) {
       superAdmin: false,
     });
     console.log('[Onboarding API] Custom claims set, registration complete');
+
+    // 6. Audit trail
+    const { logAuditServer } = await import('@/lib/firebase/admin');
+    await logAuditServer({
+      action: 'create',
+      entity: 'tenant',
+      entityId: tenantRef.id,
+      tenantId: tenantRef.id,
+      userId: uid,
+      userEmail: email,
+      userRole: 'owner',
+      details: { description: { en: `Gym "${gymName}" registered on ${planKey} plan`, ar: `تسجيل جيم "${gymName}" على خطة ${planKey}` } },
+    });
 
     return NextResponse.json({
       success: true,

@@ -4,8 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getTenantDocuments, deleteTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
+import { getTenantDocuments, updateTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
+import { logAuditClient } from '@/lib/firebase/audit';
 import { useTenant } from '@/context/TenantContext';
+import { Timestamp } from 'firebase/firestore';
 import styles from './members.module.css';
 
 export default function MembersPage() {
@@ -44,6 +46,7 @@ export default function MembersPage() {
   }, [tenantId]);
 
   const filteredMembers = members.filter((member) => {
+    if (member.status === 'archived') return false; // hide soft-deleted members
     const name = member.fullName[locale] || member.fullName.ar;
     const matchesSearch = searchQuery === '' ||
       name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -66,8 +69,24 @@ export default function MembersPage() {
 
   const handleDelete = async (memberId) => {
     if (!tenantId) return;
-    const { error } = await deleteTenantDocument(tenantId, 'members', memberId);
+    // Soft-delete: archive the member and cancel their active/frozen
+    // subscriptions. Payments and attendance are kept as financial history
+    // (a hard delete would orphan them).
+    const { error } = await updateTenantDocument(tenantId, 'members', memberId, {
+      status: 'archived',
+      archivedAt: Timestamp.fromDate(new Date()),
+    });
     if (!error) {
+      try {
+        const { data: subs } = await getTenantDocuments(tenantId, 'subscriptions',
+          [{ field: 'memberId', operator: '==', value: memberId }]);
+        for (const s of (subs || [])) {
+          if (s.status === 'active' || s.status === 'frozen') {
+            await updateTenantDocument(tenantId, 'subscriptions', s.id, { status: 'cancelled' });
+          }
+        }
+      } catch (e) { console.error('subscription cleanup failed:', e); }
+      logAuditClient({ action: 'delete', entity: 'member', entityId: memberId, tenantId, severity: 'warning', details: { description: { en: 'Archived member', ar: 'أرشفة عضو' } } });
       setMembers(members.filter(m => m.id !== memberId));
       setTotalCount(prev => prev - 1);
     }

@@ -20,7 +20,10 @@ export default function AdminEngagementPage() {
       if (!tenantId) { setLoading(false); return; }
       try {
         const [attRes, memRes] = await Promise.all([
-          getTenantDocuments(tenantId, 'attendance', [], { field: 'createdAt', direction: 'desc' }),
+          // Bound to the most recent 2000 check-ins — engagement analytics is
+          // recency-focused, and this caps memory/reads (was an unbounded load
+          // of the entire attendance collection).
+          getTenantDocuments(tenantId, 'attendance', [], { field: 'createdAt', direction: 'desc' }, 2000),
           getTenantDocuments(tenantId, 'members'),
         ]);
         setAttendance(attRes.data || []);

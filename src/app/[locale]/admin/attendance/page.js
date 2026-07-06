@@ -120,24 +120,20 @@ export default function AttendanceLogsPage() {
               <th>{t('members.fullName')}</th>
               <th>{t('common.date')}</th>
               <th>{t('attendance.checkIn')}</th>
-              <th>{t('attendance.checkOut')}</th>
-              <th>{isAr ? 'المدة' : 'Duration'}</th>
               <th>{t('members.gender')}</th>
               <th>{isAr ? 'الطريقة' : 'Method'}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 'var(--space-8)' }}>{t('common.loading')}</td></tr>
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--space-8)' }}>{t('common.loading')}</td></tr>
             ) : filteredData.length === 0 ? (
-              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--pt-gray-500)' }}>
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--pt-gray-500)' }}>
                 <div style={{ fontSize: '2rem', marginBottom: 'var(--space-2)' }}>📭</div>{t('common.noData')}
               </td></tr>
             ) : (
               filteredData.map((att, i) => {
                 const checkIn = att.checkIn?.toDate ? att.checkIn.toDate() : null;
-                const checkOut = att.checkOut?.toDate ? att.checkOut.toDate() : null;
-                const duration = checkIn && checkOut ? Math.round((checkOut - checkIn) / (1000 * 60)) : null;
                 return (
                   <tr key={att.id}>
                     <td style={{ color: 'var(--pt-gray-500)' }}>{i + 1}</td>
@@ -157,10 +153,6 @@ export default function AttendanceLogsPage() {
                     <td dir="ltr" style={{ fontFamily: 'var(--font-en)' }}>
                       {checkIn ? checkIn.toLocaleTimeString(isAr ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' }) : '-'}
                     </td>
-                    <td dir="ltr" style={{ fontFamily: 'var(--font-en)' }}>
-                      {checkOut ? checkOut.toLocaleTimeString(isAr ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' }) : '—'}
-                    </td>
-                    <td>{duration ? `${duration} ${isAr ? 'دقيقة' : 'min'}` : '—'}</td>
                     <td>{att.gender === 'male' ? '♂️' : '♀️'} {t(`common.${att.gender}`)}</td>
                     <td><span className="badge badge-info" style={{ fontSize: '10px' }}>{att.method === 'qr_scan' ? '📱 QR' : '✍️'}</span></td>
                   </tr>

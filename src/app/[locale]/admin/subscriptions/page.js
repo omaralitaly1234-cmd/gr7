@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getTenantDocuments, updateTenantDocument } from '@/lib/firebase/firestore';
+import { computeFreeze } from '@/lib/subscription-math';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -23,6 +24,7 @@ export default function SubscriptionsPage() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [showFreezeModal, setShowFreezeModal] = useState(null);
   const [freezeReason, setFreezeReason] = useState('travel');
+  const [freezeDays, setFreezeDays] = useState(7);
 
   useEffect(() => {
     loadData();
@@ -40,15 +42,15 @@ export default function SubscriptionsPage() {
     setLoading(false);
   };
 
+  // O(1) member lookups (was members.find per row → O(n²) across the table)
+  const membersById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
+
   const getMemberName = (memberId) => {
-    const m = members.find(m => m.id === memberId);
+    const m = membersById.get(memberId);
     return m?.fullName?.[locale] || m?.fullName?.ar || '—';
   };
 
-  const getMemberPhone = (memberId) => {
-    const m = members.find(m => m.id === memberId);
-    return m?.phone || '';
-  };
+  const getMemberPhone = (memberId) => membersById.get(memberId)?.phone || '';
 
   const getRemainingDays = (sub) => {
     if (!sub.endDate) return 0;
@@ -69,19 +71,33 @@ export default function SubscriptionsPage() {
     frozen: subscriptions.filter(s => s.status === 'frozen').length,
   };
 
+  // Freeze extends the end date UP-FRONT by N days (consistent with the member
+  // and member-detail freeze paths). Unfreeze only clears the frozen status.
   const handleFreeze = async () => {
     if (!showFreezeModal || !tenantId) return;
+    const currentEnd = showFreezeModal.endDate?.toDate ? showFreezeModal.endDate.toDate() : new Date(showFreezeModal.endDate);
+    const r = computeFreeze(
+      { endDateMs: currentEnd.getTime(), freezeDaysUsed: showFreezeModal.freezeDaysUsed, maxFreezeDays: showFreezeModal.maxFreezeDays || 14 },
+      freezeDays,
+    );
+    if (!r.ok) {
+      toast.error(r.error === 'cap_exceeded'
+        ? (isAr ? `تجاوز حد التجميد — متبقٍ ${r.remaining} يوم` : `Exceeds freeze limit — ${r.remaining} days left`)
+        : (isAr ? 'عدد أيام غير صالح' : 'Invalid number of days'));
+      return;
+    }
     try {
       await updateTenantDocument(tenantId, 'subscriptions', showFreezeModal.id, {
         status: 'frozen',
         currentFreezeStart: Timestamp.fromDate(new Date()),
         freezeReason,
+        freezeDaysUsed: r.newFreezeDaysUsed,
+        endDate: Timestamp.fromDate(new Date(r.newEndDateMs)),
       });
-      // Update member status
       if (showFreezeModal.memberId) {
         await updateTenantDocument(tenantId, 'members', showFreezeModal.memberId, { status: 'frozen' });
       }
-      toast.success(isAr ? 'تم تجميد الاشتراك' : 'Subscription frozen');
+      toast.success(isAr ? `تم تجميد ${r.newFreezeDaysUsed - (showFreezeModal.freezeDaysUsed || 0)} يوم` : `Frozen ${r.newFreezeDaysUsed - (showFreezeModal.freezeDaysUsed || 0)} days`);
       setShowFreezeModal(null);
       loadData();
     } catch (err) {
@@ -92,22 +108,14 @@ export default function SubscriptionsPage() {
   const handleUnfreeze = async (sub) => {
     if (!tenantId) return;
     try {
-      const freezeStart = sub.currentFreezeStart?.toDate ? sub.currentFreezeStart.toDate() : new Date();
-      const daysFrozen = Math.max(1, Math.ceil((new Date() - freezeStart) / (1000 * 60 * 60 * 24)));
-      const oldEnd = sub.endDate?.toDate ? sub.endDate.toDate() : new Date();
-      const newEnd = new Date(oldEnd);
-      newEnd.setDate(newEnd.getDate() + daysFrozen);
-
       await updateTenantDocument(tenantId, 'subscriptions', sub.id, {
         status: 'active',
         currentFreezeStart: null,
-        endDate: Timestamp.fromDate(newEnd),
-        freezeDaysUsed: (sub.freezeDaysUsed || 0) + daysFrozen,
       });
       if (sub.memberId) {
         await updateTenantDocument(tenantId, 'members', sub.memberId, { status: 'active' });
       }
-      toast.success(isAr ? `تم إلغاء التجميد — أُضيف ${daysFrozen} يوم` : `Unfrozen — ${daysFrozen} days added`);
+      toast.success(isAr ? 'تم إلغاء التجميد' : 'Unfrozen');
       loadData();
     } catch (err) {
       toast.error(isAr ? 'حدث خطأ' : 'Error occurred');
@@ -270,6 +278,13 @@ export default function SubscriptionsPage() {
               <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
                 {isAr ? `المتاح: ${(showFreezeModal.maxFreezeDays || 14) - (showFreezeModal.freezeDaysUsed || 0)} يوم` : `Available: ${(showFreezeModal.maxFreezeDays || 14) - (showFreezeModal.freezeDaysUsed || 0)} days`}
               </p>
+              <div className="form-group" style={{ marginBottom: 'var(--space-3)' }}>
+                <label className="form-label">{isAr ? 'عدد أيام التجميد' : 'Freeze days'}</label>
+                <input className="form-input" type="number" min="1"
+                  max={(showFreezeModal.maxFreezeDays || 14) - (showFreezeModal.freezeDaysUsed || 0)} dir="ltr"
+                  value={freezeDays}
+                  onChange={e => setFreezeDays(Math.min(Number(e.target.value), (showFreezeModal.maxFreezeDays || 14) - (showFreezeModal.freezeDaysUsed || 0)))} />
+              </div>
               <div className="form-group">
                 <label className="form-label">{t('subscriptions.freezeReason')}</label>
                 <select className="form-select" value={freezeReason} onChange={e => setFreezeReason(e.target.value)}>

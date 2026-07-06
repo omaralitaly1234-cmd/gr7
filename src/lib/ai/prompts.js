@@ -19,23 +19,41 @@ function sanitizeMessage(msg) {
   return sanitizeInput(msg, MAX_MESSAGE_LENGTH);
 }
 
+// Coerce a numeric field to a clamped number (defends against injection via
+// "numeric" inputs that arrive as strings).
+function clampNum(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 /**
  * Generate nutrition plan prompt
  */
 export function nutritionPrompt({ weight, height, age, gender, goal, allergies, dietType, activityLevel, locale }) {
   const isAr = locale === 'ar';
+  // Sanitize/clamp every client-supplied field (these are interpolated into the
+  // prompt — raw values are a prompt-injection vector).
+  const w = clampNum(weight, 20, 400, 70);
+  const h = clampNum(height, 50, 300, 170);
+  const a = clampNum(age, 5, 120, 30);
+  const g = sanitizeInput(gender, 20) || 'unspecified';
+  const goalS = sanitizeInput(goal, 60) || 'general fitness';
+  const allergiesS = sanitizeInput(allergies, 200) || 'None';
+  const dietS = sanitizeInput(dietType, 60) || 'Standard balanced';
+  const activityS = sanitizeInput(activityLevel, 60) || 'Moderate (3-5 gym sessions/week)';
   return `You are an expert sports nutritionist for a gym called "Power Time".
 ${isAr ? 'Respond entirely in Arabic.' : 'Respond in English.'}
 
 Create a personalized daily nutrition plan with the following details:
-- Weight: ${weight} kg
-- Height: ${height} cm
-- Age: ${age} years
-- Gender: ${gender}
-- Goal: ${goal}
-- Food allergies/restrictions: ${allergies || 'None'}
-- Diet type: ${dietType || 'Standard balanced'}
-- Activity level: ${activityLevel || 'Moderate (3-5 gym sessions/week)'}
+- Weight: ${w} kg
+- Height: ${h} cm
+- Age: ${a} years
+- Gender: ${g}
+- Goal: ${goalS}
+- Food allergies/restrictions: ${allergiesS}
+- Diet type: ${dietS}
+- Activity level: ${activityS}
 
 Return a JSON object with this exact structure:
 {
@@ -62,16 +80,23 @@ Include 5 meals. Be specific with portions (grams). Calculate macros accurately 
  */
 export function workoutPrompt({ level, goal, daysPerWeek, duration, injuries, equipment, locale }) {
   const isAr = locale === 'ar';
+  // Sanitize/clamp every client-supplied field (prompt-injection defense).
+  const levelS = sanitizeInput(level, 40) || 'beginner';
+  const goalS = sanitizeInput(goal, 60) || 'general fitness';
+  const days = clampNum(daysPerWeek, 1, 7, 3);
+  const durationS = sanitizeInput(duration, 40) || '4 weeks';
+  const injuriesS = sanitizeInput(injuries, 200) || 'None';
+  const equipmentS = sanitizeInput(equipment, 200) || 'Full gym equipment';
   return `You are an expert personal trainer at "Power Time" gym.
 ${isAr ? 'Respond entirely in Arabic.' : 'Respond in English.'}
 
 Create a personalized workout program with these details:
-- Fitness level: ${level}
-- Goal: ${goal}
-- Training days per week: ${daysPerWeek}
-- Program duration: ${duration || '4 weeks'}
-- Injuries/limitations: ${injuries || 'None'}
-- Available equipment: ${equipment || 'Full gym equipment'}
+- Fitness level: ${levelS}
+- Goal: ${goalS}
+- Training days per week: ${days}
+- Program duration: ${durationS}
+- Injuries/limitations: ${injuriesS}
+- Available equipment: ${equipmentS}
 
 Return a JSON object with this exact structure:
 {

@@ -13,7 +13,6 @@ import {
   limit,
   startAfter,
   serverTimestamp,
-  onSnapshot,
   writeBatch,
   getCountFromServer,
 } from 'firebase/firestore';
@@ -190,42 +189,6 @@ export async function batchWrite(operations) {
   }
 }
 
-// Real-time listener for a collection
-export function subscribeToCollection(collectionName, filters = [], sortBy = null, callback) {
-  const constraints = [];
-
-  filters.forEach(({ field, operator, value }) => {
-    constraints.push(where(field, operator, value));
-  });
-
-  if (sortBy) {
-    constraints.push(orderBy(sortBy.field, sortBy.direction || 'asc'));
-  }
-
-  const q = query(collection(db, collectionName), ...constraints);
-
-  return onSnapshot(q, (snapshot) => {
-    const docs = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-    callback(docs);
-  }, (error) => {
-    console.error(`Firestore subscription error (${collectionName}):`, error);
-  });
-}
-
-// Real-time listener for a single document
-export function subscribeToDocument(collectionName, docId, callback) {
-  return onSnapshot(doc(db, collectionName, docId), (docSnap) => {
-    if (docSnap.exists()) {
-      callback({ id: docSnap.id, ...docSnap.data() });
-    } else {
-      callback(null);
-    }
-  });
-}
-
 // ==================== Tenant-Scoped Helpers ====================
 // These helpers automatically scope queries to a specific tenant's sub-collection
 
@@ -281,13 +244,22 @@ export async function getTenantCollectionCount(tenantId, collectionName, filters
   return getCollectionCount(getTenantPath(tenantId, collectionName), filters);
 }
 
-// Real-time listener for tenant's sub-collection
-export function subscribeToTenantCollection(tenantId, collectionName, filters = [], sortBy = null, callback) {
-  return subscribeToCollection(getTenantPath(tenantId, collectionName), filters, sortBy, callback);
-}
-
-// Real-time listener for a single tenant document
-export function subscribeToTenantDocument(tenantId, collectionName, docId, callback) {
-  return subscribeToDocument(getTenantPath(tenantId, collectionName), docId, callback);
+/**
+ * Load the members assigned to a trainer with a SERVER-SIDE filter
+ * (members.assignedTrainer == trainerUid), instead of loading every member and
+ * filtering in JS. Sorted by Arabic name. Single-field filter → auto-indexed.
+ *
+ * Note: the old client-side filter also OR'd `assignedTrainerDocId == trainerUid`,
+ * but that compared a trainer DOC-ID field to an Auth UID and never matched, so
+ * this is behavior-equivalent.
+ */
+export async function getTrainerClients(tenantId, trainerUid) {
+  const { data, error } = await getTenantDocuments(
+    tenantId,
+    'members',
+    [{ field: 'assignedTrainer', operator: '==', value: trainerUid }],
+  );
+  const sorted = (data || []).sort((a, b) => (a.fullName?.ar || '').localeCompare(b.fullName?.ar || ''));
+  return { data: sorted, error };
 }
 

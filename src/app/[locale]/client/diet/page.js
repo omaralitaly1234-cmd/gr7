@@ -19,7 +19,7 @@ export default function ClientDietPage() {
     async function load() {
       if (!tenantId || !memberData) { setLoading(false); return; }
       try {
-        const { data } = await getTenantDocuments(tenantId, 'diet-plans',
+        const { data } = await getTenantDocuments(tenantId, 'diet_plans',
           [{ field: 'memberId', operator: '==', value: memberData.id }, { field: 'status', operator: '==', value: 'active' }],
           { field: 'createdAt', direction: 'desc' }, 1);
         setDietPlan(data?.[0] || null);

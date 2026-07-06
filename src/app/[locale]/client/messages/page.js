@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, addTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments } from '@/lib/firebase/firestore';
+import { authPost } from '@/lib/authenticated-fetch';
 import { useMemberData } from '@/lib/hooks/useMemberData';
 import { Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -23,9 +24,11 @@ export default function ClientMessagesPage() {
     async function load() {
       if (!tenantId || !memberData) { setLoading(false); return; }
       try {
-        // Load all messages, then filter for this member client-side
-        const { data } = await getTenantDocuments(tenantId, 'messages');
-        const myMessages = (data || []).filter(m => m.memberId === memberData.id);
+        // Server-side filter to this member's messages (was: load entire
+        // collection then filter in JS).
+        const { data } = await getTenantDocuments(tenantId, 'messages',
+          [{ field: 'memberId', operator: '==', value: memberData.id }]);
+        const myMessages = data || [];
         // Sort by time ascending
         myMessages.sort((a, b) => {
           const ta = a.sentAt?.toDate ? a.sentAt.toDate().getTime() : a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
@@ -43,21 +46,19 @@ export default function ClientMessagesPage() {
     if (!newMsg.trim() || !tenantId || !memberData) return;
     setSending(true);
     try {
+      const text = newMsg.trim();
+      const res = await authPost('/api/member/messages', { text });
+      if (!res.ok) throw new Error('send_failed');
       const now = Timestamp.fromDate(new Date());
-      const msgDoc = {
-        senderId: memberData.uid || memberData.id,
+      setMessages(prev => [...prev, {
         senderName: memberData.fullName?.[locale] || memberData.fullName?.ar || '',
-        receiverId: memberData.assignedTrainer || null,
         memberId: memberData.id,
-        text: newMsg,
+        text,
         from: 'member',
-        participants: [memberData.uid || memberData.id, memberData.assignedTrainer].filter(Boolean),
         sentAt: now,
         createdAt: now,
         read: false,
-      };
-      await addTenantDocument(tenantId, 'messages', msgDoc);
-      setMessages(prev => [...prev, { ...msgDoc }]);
+      }]);
       setNewMsg('');
     } catch (err) {
       console.error(err);

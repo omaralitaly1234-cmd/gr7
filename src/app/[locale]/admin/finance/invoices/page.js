@@ -41,13 +41,15 @@ export default function InvoicesPage() {
 
   const handlePrint = (pay) => {
     const member = members.find(m => m.id === pay.memberId);
+    // Escape any member-controlled value before injecting into the print HTML (prevents stored XSS)
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const win = window.open('', '_blank', 'width=400,height=600');
     win.document.write(`
       <!DOCTYPE html>
       <html dir="${isAr ? 'rtl' : 'ltr'}" lang="${locale}">
       <head>
         <meta charset="utf-8">
-        <title>${pay.invoiceNumber || 'Invoice'}</title>
+        <title>${esc(pay.invoiceNumber || 'Invoice')}</title>
         <style>
           body { font-family: 'Cairo', 'Segoe UI', sans-serif; padding: 24px; max-width: 380px; margin: 0 auto; color: #333; font-size: 13px; }
           .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #F5C518; padding-bottom: 16px; }
@@ -69,13 +71,13 @@ export default function InvoicesPage() {
         </div>
         <div style="text-align:center;margin-bottom:12px;">
           <strong>${isAr ? 'فاتورة / إيصال' : 'Invoice / Receipt'}</strong><br/>
-          <span style="color:#888">${pay.invoiceNumber || '-'}</span>
+          <span style="color:#888">${esc(pay.invoiceNumber || '-')}</span>
         </div>
         <div class="info">
-          <div class="row"><span class="label">${isAr ? 'العضو' : 'Member'}</span><span class="value">${pay.memberName || '-'}</span></div>
-          <div class="row"><span class="label">${isAr ? 'رقم العضوية' : 'ID'}</span><span class="value">${member?.membershipNumber || '-'}</span></div>
+          <div class="row"><span class="label">${isAr ? 'العضو' : 'Member'}</span><span class="value">${esc(pay.memberName || '-')}</span></div>
+          <div class="row"><span class="label">${isAr ? 'رقم العضوية' : 'ID'}</span><span class="value">${esc(member?.membershipNumber || '-')}</span></div>
           <div class="row"><span class="label">${isAr ? 'التاريخ' : 'Date'}</span><span class="value">${pay.createdAt?.toDate ? pay.createdAt.toDate().toLocaleDateString(isAr ? 'ar-EG' : 'en-US') : '-'}</span></div>
-          <div class="row"><span class="label">${isAr ? 'النوع' : 'Type'}</span><span class="value">${pay.type || '-'}</span></div>
+          <div class="row"><span class="label">${isAr ? 'النوع' : 'Type'}</span><span class="value">${esc(pay.type || '-')}</span></div>
           <div class="row"><span class="label">${isAr ? 'طريقة الدفع' : 'Method'}</span><span class="value">${pay.method === 'cash' ? (isAr ? 'كاش' : 'Cash') : pay.method === 'visa' ? (isAr ? 'فيزا' : 'Visa') : (isAr ? 'تحويل' : 'Transfer')}</span></div>
           <div class="row"><span class="label">${isAr ? 'المبلغ' : 'Amount'}</span><span class="value">${(pay.amount || 0).toLocaleString()} ${isAr ? 'ج.م' : 'EGP'}</span></div>
           ${pay.discount ? `<div class="row"><span class="label">${isAr ? 'الخصم' : 'Discount'}</span><span class="value" style="color:green">-${pay.discount.toLocaleString()} ${isAr ? 'ج.م' : 'EGP'}</span></div>` : ''}

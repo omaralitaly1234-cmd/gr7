@@ -20,7 +20,7 @@ export default function ClientTraining() {
     async function load() {
       if (!tenantId || !memberData) { setLoading(false); return; }
       try {
-        const { data } = await getTenantDocuments(tenantId, 'training-programs',
+        const { data } = await getTenantDocuments(tenantId, 'training_programs',
           [{ field: 'memberId', operator: '==', value: memberData.id }, { field: 'status', operator: '==', value: 'active' }],
           { field: 'createdAt', direction: 'desc' }, 1);
         setProgram(data?.[0] || null);

@@ -1,6 +1,7 @@
 // Trainer Registration API — Server-Side (Admin SDK)
 // Creates a Firebase Auth account + user doc + tenant trainer doc
 import { NextResponse } from 'next/server';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limiter';
 
 export async function POST(request) {
   try {
@@ -9,6 +10,11 @@ export async function POST(request) {
       email, password, tenantId, callerUid,
       name, phone, specialization, commission, gender,
     } = body;
+
+    // Rate limit by caller (fallback to IP) — prevents bulk-abuse of user creation
+    const rlKey = callerUid || request.headers.get('x-forwarded-for') || 'anon';
+    const rl = checkRateLimit(`trainers:${rlKey}`, 10, 60000);
+    if (rl.limited) return rateLimitResponse(rl.retryAfter);
 
     console.log('[Trainer API] Request received:', { email, tenantId });
 
@@ -34,8 +40,12 @@ export async function POST(request) {
       );
     }
 
+    // Clamp commission to a sane percentage range (was unbounded — could be
+    // negative or 1000%).
+    const commissionPct = Math.min(100, Math.max(0, Number(commission) || 10));
+
     // Import Admin SDK
-    const { createUserServerSide, getAdminDb, verifyIdToken, setCustomClaims } = await import('@/lib/firebase/admin');
+    const { createUserServerSide, getAdminDb, verifyIdToken, setCustomClaims, logAuditServer } = await import('@/lib/firebase/admin');
     const adminDb = getAdminDb();
 
     if (!adminDb) {
@@ -135,7 +145,7 @@ export async function POST(request) {
       phone: phone || '',
       email,
       specialization: specialization || '',
-      commission: commission || 10,
+      commission: commissionPct,
       gender: gender || 'male',
       status: 'active',
       rating: 0,
@@ -145,6 +155,18 @@ export async function POST(request) {
       updatedAt: Timestamp.now(),
     });
     console.log('[Trainer API] Trainer doc created:', trainerDocRef.id);
+
+    // 5. Audit trail
+    await logAuditServer({
+      action: 'create',
+      entity: 'trainer',
+      entityId: trainerDocRef.id,
+      tenantId,
+      userId: callerUid,
+      userEmail: callerData.email || '',
+      userRole: callerData.tenantRole || '',
+      details: { description: { en: `Created trainer ${email}`, ar: `إنشاء مدرب ${email}` } },
+    });
 
     return NextResponse.json({
       success: true,

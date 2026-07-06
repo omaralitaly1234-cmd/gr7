@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, addTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments, addTenantDocument, getTrainerClients } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { Timestamp } from 'firebase/firestore';
@@ -28,11 +28,9 @@ export default function TrainerProgressPage() {
     async function load() {
       if (!tenantId || !user) { setLoading(false); return; }
       try {
-        const { data } = await getTenantDocuments(tenantId, 'members');
-        const myClients = (data || []).filter(m => m.assignedTrainer === user.uid || m.assignedTrainerDocId === user.uid);
-        myClients.sort((a, b) => (a.fullName?.ar || '').localeCompare(b.fullName?.ar || ''));
-        setClients(myClients);
-        if (myClients.length > 0) setSelectedClient(myClients[0].id);
+        const { data: myClients } = await getTrainerClients(tenantId, user.uid);
+        setClients(myClients || []);
+        if ((myClients || []).length > 0) setSelectedClient(myClients[0].id);
       } catch (err) { console.error(err); }
       setLoading(false);
     }

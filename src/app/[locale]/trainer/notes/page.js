@@ -31,7 +31,7 @@ export default function TrainerSessionNotesPage() {
       if (!tenantId || !client) return;
       setLoading(true);
       try {
-        const { data } = await getTenantDocuments(tenantId, 'session-notes',
+        const { data } = await getTenantDocuments(tenantId, 'session_notes',
           [{ field: 'memberId', operator: '==', value: client.id }],
           { field: 'createdAt', direction: 'desc' }, 20);
         setNotes(data || []);
@@ -45,7 +45,7 @@ export default function TrainerSessionNotesPage() {
     if (!tenantId || !client || !noteForm.trainerNote) return;
     setSaving(true);
     try {
-      await addTenantDocument(tenantId, 'session-notes', {
+      await addTenantDocument(tenantId, 'session_notes', {
         memberId: client.id,
         memberName: client.fullName,
         trainerId: user?.uid,
@@ -60,7 +60,7 @@ export default function TrainerSessionNotesPage() {
       setShowNoteModal(false);
       setNoteForm({ muscle: '', duration: '', energy: '', mood: '💪', trainerNote: '' });
       // Reload
-      const { data } = await getTenantDocuments(tenantId, 'session-notes',
+      const { data } = await getTenantDocuments(tenantId, 'session_notes',
         [{ field: 'memberId', operator: '==', value: client.id }],
         { field: 'createdAt', direction: 'desc' }, 20);
       setNotes(data || []);

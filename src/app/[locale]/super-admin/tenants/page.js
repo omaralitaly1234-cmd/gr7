@@ -5,6 +5,9 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getDocuments, updateDocument } from '@/lib/firebase/firestore';
 import { PLAN_DEFINITIONS } from '@/lib/firebase/subscription';
+import { Timestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase/config';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
 export default function TenantsPage() {
@@ -16,6 +19,14 @@ export default function TenantsPage() {
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
+
+  // Plan change modal state
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [modalTenant, setModalTenant] = useState(null);
+  const [selectedPlan, setSelectedPlan] = useState('');
+  const [customDays, setCustomDays] = useState('');
+  const [useCustomDays, setUseCustomDays] = useState(false);
+  const [planChangeLoading, setPlanChangeLoading] = useState(false);
 
   useEffect(() => { loadTenants(); }, []);
 
@@ -47,6 +58,61 @@ export default function TenantsPage() {
       toast.error(err.message || (isAr ? 'حدث خطأ' : 'Error'));
     }
     setActionLoading(null);
+  };
+
+  // Open plan change modal for a tenant
+  const openPlanModal = (tenant) => {
+    setModalTenant(tenant);
+    setSelectedPlan(tenant.subscription?.plan === 'trial' ? 'monthly' : (tenant.subscription?.plan || 'monthly'));
+    setCustomDays('');
+    setUseCustomDays(false);
+    setShowPlanModal(true);
+  };
+
+  // Handle plan change
+  const handleChangePlan = async () => {
+    if (!modalTenant || !selectedPlan) return;
+    const plan = PLAN_DEFINITIONS[selectedPlan];
+    if (!plan) { toast.error(isAr ? 'باقة غير صالحة' : 'Invalid plan'); return; }
+
+    const durationDays = useCustomDays && customDays ? parseInt(customDays) : plan.durationDays;
+    if (!durationDays || durationDays < 1) {
+      toast.error(isAr ? 'أدخل عدد أيام صحيح' : 'Enter a valid number of days');
+      return;
+    }
+
+    setPlanChangeLoading(true);
+    try {
+      const now = new Date();
+      const endDate = new Date(now);
+      endDate.setDate(endDate.getDate() + durationDays);
+
+      await updateDoc(doc(db, 'tenants', modalTenant.id), {
+        status: 'active',
+        'subscription.plan': selectedPlan,
+        'subscription.startDate': Timestamp.fromDate(now),
+        'subscription.endDate': Timestamp.fromDate(endDate),
+        'subscription.lastPaymentDate': Timestamp.fromDate(now),
+        'subscription.nextPaymentDate': Timestamp.fromDate(endDate),
+        'subscription.autoRenew': true,
+        features: { ...plan.features },
+        'limits.maxMembers': plan.maxMembers,
+        'limits.maxTrainers': plan.maxTrainers,
+        updatedAt: serverTimestamp(),
+      });
+
+      toast.success(isAr
+        ? `تم تغيير باقة ${modalTenant.nameAr || modalTenant.name} إلى ${plan.name[locale] || plan.name.ar} (${durationDays} يوم)`
+        : `Changed ${modalTenant.nameEn || modalTenant.name} to ${plan.name.en} (${durationDays} days)`
+      );
+      setShowPlanModal(false);
+      setModalTenant(null);
+      loadTenants();
+    } catch (err) {
+      console.error('[Tenants] Plan change error:', err);
+      toast.error(err.message || (isAr ? 'حدث خطأ' : 'Error'));
+    }
+    setPlanChangeLoading(false);
   };
 
   const filtered = tenants.filter(t => {
@@ -99,6 +165,8 @@ export default function TenantsPage() {
     { key: 'suspended', label: isAr ? 'معلّق' : 'Suspended', count: countByStatus('suspended') },
     { key: 'pending_payment', label: isAr ? 'بانتظار الدفع' : 'Pending', count: countByStatus('pending_payment') },
   ];
+
+  const availablePlans = Object.values(PLAN_DEFINITIONS).filter(p => p.id !== 'trial');
 
   return (
     <div className="animate-fadeIn">
@@ -226,6 +294,15 @@ export default function TenantsPage() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                        {/* Change Plan */}
+                        <button
+                          className="btn btn-sm"
+                          style={{ background: 'linear-gradient(135deg, var(--pt-gold), #e6a800)', color: 'var(--pt-black)', fontWeight: 700, border: 'none' }}
+                          onClick={() => openPlanModal(t)}
+                          disabled={actionLoading === t.id}
+                        >
+                          🔄 {isAr ? 'تغيير الباقة' : 'Change Plan'}
+                        </button>
                         {/* Activate */}
                         {(t.status === 'trial' || t.status === 'pending_payment' || t.status === 'expired') && (
                           <button
@@ -264,6 +341,145 @@ export default function TenantsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Plan Change Modal */}
+      {showPlanModal && modalTenant && (
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 9999, padding: 'var(--space-4)',
+          }}
+          onClick={() => !planChangeLoading && setShowPlanModal(false)}
+        >
+          <div
+            className="card animate-fadeIn"
+            style={{
+              maxWidth: 520, width: '100%',
+              border: '1px solid rgba(245,197,24,0.2)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ fontWeight: 700, marginBottom: 'var(--space-5)', textAlign: 'center' }}>
+              🔄 {isAr ? 'تغيير باقة الاشتراك' : 'Change Subscription Plan'}
+            </h2>
+
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--pt-gray-400)', marginBottom: 'var(--space-4)', textAlign: 'center' }}>
+              {isAr
+                ? `الجيم: ${modalTenant.nameAr || modalTenant.name} — الباقة الحالية: ${PLAN_DEFINITIONS[modalTenant.subscription?.plan]?.name?.ar || modalTenant.subscription?.plan}`
+                : `Gym: ${modalTenant.nameEn || modalTenant.name} — Current: ${PLAN_DEFINITIONS[modalTenant.subscription?.plan]?.name?.en || modalTenant.subscription?.plan}`
+              }
+            </p>
+
+            {/* Plan Selection */}
+            <div style={{ marginBottom: 'var(--space-4)' }}>
+              <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, marginBottom: 'var(--space-2)', display: 'block' }}>
+                {isAr ? 'اختر الباقة الجديدة' : 'Select New Plan'}
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                {availablePlans.map((plan) => (
+                  <label
+                    key={plan.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                      padding: 'var(--space-3) var(--space-4)',
+                      borderRadius: 'var(--radius-md)',
+                      border: selectedPlan === plan.id ? '2px solid var(--pt-gold)' : '1px solid var(--pt-gray-700)',
+                      background: selectedPlan === plan.id ? 'rgba(245,197,24,0.08)' : 'var(--pt-darker)',
+                      cursor: 'pointer', transition: 'all 0.2s',
+                    }}
+                  >
+                    <input
+                      type="radio" name="plan" value={plan.id}
+                      checked={selectedPlan === plan.id}
+                      onChange={() => setSelectedPlan(plan.id)}
+                      style={{ accentColor: 'var(--pt-gold)' }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>{plan.name[locale] || plan.name.ar}</div>
+                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>
+                        {plan.durationDays} {isAr ? 'يوم' : 'days'} • {plan.price} {isAr ? 'ج.م' : 'EGP'}
+                        {' • '}{isAr ? 'أعضاء' : 'Members'}: {plan.maxMembers === -1 ? '♾' : plan.maxMembers}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Duration */}
+            <div style={{
+              marginBottom: 'var(--space-5)',
+              padding: 'var(--space-3) var(--space-4)',
+              background: 'var(--pt-darker)', borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--pt-gray-700)',
+            }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer', marginBottom: useCustomDays ? 'var(--space-3)' : 0 }}>
+                <input
+                  type="checkbox" checked={useCustomDays}
+                  onChange={(e) => setUseCustomDays(e.target.checked)}
+                  style={{ accentColor: 'var(--pt-gold)' }}
+                />
+                <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600 }}>
+                  {isAr ? 'تحديد مدة مخصصة (بالأيام)' : 'Set custom duration (days)'}
+                </span>
+              </label>
+              {useCustomDays && (
+                <input
+                  className="form-input" type="number" min="1"
+                  placeholder={isAr ? 'عدد الأيام...' : 'Number of days...'}
+                  value={customDays}
+                  onChange={(e) => setCustomDays(e.target.value)}
+                  style={{ width: '100%' }}
+                  autoFocus
+                />
+              )}
+            </div>
+
+            {/* Summary */}
+            {selectedPlan && (
+              <div style={{
+                padding: 'var(--space-3) var(--space-4)',
+                background: 'rgba(245,197,24,0.06)',
+                border: '1px solid rgba(245,197,24,0.15)',
+                borderRadius: 'var(--radius-md)',
+                marginBottom: 'var(--space-5)',
+                fontSize: 'var(--font-size-sm)',
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: 'var(--space-1)', color: 'var(--pt-gold)' }}>
+                  📋 {isAr ? 'ملخص التغيير' : 'Change Summary'}
+                </div>
+                <div style={{ color: 'var(--pt-gray-300)' }}>
+                  {isAr ? 'الباقة: ' : 'Plan: '}<strong>{PLAN_DEFINITIONS[selectedPlan]?.name?.[locale]}</strong>
+                  {' • '}
+                  {isAr ? 'المدة: ' : 'Duration: '}
+                  <strong>{useCustomDays && customDays ? customDays : PLAN_DEFINITIONS[selectedPlan]?.durationDays} {isAr ? 'يوم' : 'days'}</strong>
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 1, background: 'linear-gradient(135deg, var(--pt-gold), #e6a800)', color: 'var(--pt-black)', fontWeight: 700 }}
+                onClick={handleChangePlan}
+                disabled={planChangeLoading || !selectedPlan}
+              >
+                {planChangeLoading
+                  ? (isAr ? '⏳ جاري التغيير...' : '⏳ Changing...')
+                  : (isAr ? '✅ تأكيد التغيير' : '✅ Confirm Change')
+                }
+              </button>
+              <button className="btn btn-ghost" onClick={() => setShowPlanModal(false)} disabled={planChangeLoading}>
+                {isAr ? 'إلغاء' : 'Cancel'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -4,11 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getTenantDocuments, updateTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
+import { getTenantDocuments, updateTenantDocument, getTenantCollectionCount, getTenantPaginatedDocuments } from '@/lib/firebase/firestore';
 import { logAuditClient } from '@/lib/firebase/audit';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
 import styles from './members.module.css';
+
+const PAGE_SIZE = 25;
 
 export default function MembersPage() {
   const t = useTranslations();
@@ -19,43 +21,133 @@ export default function MembersPage() {
 
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [genderFilter, setGenderFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [totalCount, setTotalCount] = useState(0);
+  const [counts, setCounts] = useState({ total: 0, active: 0, expired: 0, frozen: 0 });
   const [showDeleteModal, setShowDeleteModal] = useState(null);
 
+  // Server-side paging cursors. pageStack[i] is the Firestore doc to start
+  // page i after; index 0 is the first page (no cursor).
+  const [pageStack, setPageStack] = useState([null]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+
+  // Debounce typing so we don't fire a query per keystroke.
   useEffect(() => {
-    async function loadMembers() {
-      if (!tenantId) {
-        setLoading(false);
-        return;
-      }
+    const id = setTimeout(() => setSearchQuery(searchInput.trim()), 350);
+    return () => clearTimeout(id);
+  }, [searchInput]);
+
+  // Any filter change resets paging back to the first page.
+  useEffect(() => {
+    setPageStack([null]);
+    setPageIndex(0);
+  }, [searchQuery, genderFilter, statusFilter]);
+
+  // Stat cards come from count() aggregations — the server returns a number,
+  // not 4996 documents.
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    (async () => {
+      const [all, active, expired, frozen] = await Promise.all([
+        getTenantCollectionCount(tenantId, 'members'),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'active' }]),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'expired' }]),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'frozen' }]),
+      ]);
+      if (cancelled) return;
+      setCounts({
+        total: all.count || 0,
+        active: active.count || 0,
+        expired: expired.count || 0,
+        frozen: frozen.count || 0,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!tenantId) { setLoading(false); return; }
+    let cancelled = false;
+
+    async function loadPage() {
+      setLoading(true);
       try {
-        const { data } = await getTenantDocuments(tenantId, 'members', [],
-          { field: 'createdAt', direction: 'desc' });
-        setMembers(data || []);
-        const { count } = await getTenantCollectionCount(tenantId, 'members');
-        setTotalCount(count);
+        const filters = [];
+        if (statusFilter !== 'all') {
+          filters.push({ field: 'status', operator: '==', value: statusFilter });
+        }
+        if (genderFilter !== 'all') {
+          filters.push({ field: 'gender', operator: '==', value: genderFilter });
+        }
+
+        let data = [];
+        let lastDoc = null;
+        let more = false;
+
+        if (searchQuery) {
+          // Firestore has no substring search. Membership number and phone are
+          // matched by prefix (range query, index-friendly); the name is matched
+          // by prefix too. We run them as separate queries and merge, because
+          // Firestore can't OR across different fields in one query.
+          const end = searchQuery + '';
+          const prefixQueries = [
+            [{ field: 'membershipNumber', operator: '>=', value: searchQuery },
+             { field: 'membershipNumber', operator: '<=', value: end }],
+            [{ field: 'phone', operator: '>=', value: searchQuery },
+             { field: 'phone', operator: '<=', value: end }],
+            [{ field: 'fullName.ar', operator: '>=', value: searchQuery },
+             { field: 'fullName.ar', operator: '<=', value: end }],
+          ];
+          const results = await Promise.all(
+            prefixQueries.map(f => getTenantDocuments(tenantId, 'members', f, null, PAGE_SIZE))
+          );
+          const seen = new Set();
+          data = results.flatMap(r => r.data || []).filter(m => {
+            if (seen.has(m.id)) return false;
+            seen.add(m.id);
+            return true;
+          });
+          // Apply the dropdown filters to the merged search hits in JS — the set
+          // is at most 3 × PAGE_SIZE rows, not the whole collection.
+          if (statusFilter !== 'all') data = data.filter(m => m.status === statusFilter);
+          if (genderFilter !== 'all') data = data.filter(m => m.gender === genderFilter);
+          data = data.slice(0, PAGE_SIZE);
+        } else {
+          const res = await getTenantPaginatedDocuments(
+            tenantId, 'members', filters,
+            { field: 'createdAt', direction: 'desc' },
+            PAGE_SIZE, pageStack[pageIndex],
+          );
+          data = res.data || [];
+          lastDoc = res.lastDoc;
+          more = res.hasMore;
+        }
+
+        if (cancelled) return;
+        setMembers(data);
+        setHasMore(more);
+        // Remember the cursor so "next" can continue from here.
+        if (lastDoc && pageStack.length === pageIndex + 1) {
+          setPageStack(prev => [...prev, lastDoc]);
+        }
       } catch (err) {
         console.error('Failed to load members:', err);
       }
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     }
-    loadMembers();
-  }, [tenantId]);
 
-  const filteredMembers = members.filter((member) => {
-    if (member.status === 'archived') return false; // hide soft-deleted members
-    const name = member.fullName[locale] || member.fullName.ar;
-    const matchesSearch = searchQuery === '' ||
-      name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      member.phone.includes(searchQuery) ||
-      member.membershipNumber.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesGender = genderFilter === 'all' || member.gender === genderFilter;
-    const matchesStatus = statusFilter === 'all' || member.status === statusFilter;
-    return matchesSearch && matchesGender && matchesStatus;
-  });
+    loadPage();
+    return () => { cancelled = true; };
+    // pageStack is intentionally omitted — it is appended to inside this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, pageIndex, searchQuery, genderFilter, statusFilter]);
+
+  // Archived members are hidden; everything else is already filtered server-side.
+  const filteredMembers = members.filter(m => m.status !== 'archived');
 
   const getStatusBadge = (status) => {
     const map = {
@@ -88,7 +180,7 @@ export default function MembersPage() {
       } catch (e) { console.error('subscription cleanup failed:', e); }
       logAuditClient({ action: 'delete', entity: 'member', entityId: memberId, tenantId, severity: 'warning', details: { description: { en: 'Archived member', ar: 'أرشفة عضو' } } });
       setMembers(members.filter(m => m.id !== memberId));
-      setTotalCount(prev => prev - 1);
+      setCounts(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }));
     }
     setShowDeleteModal(null);
   };
@@ -108,28 +200,28 @@ export default function MembersPage() {
         <div className="stat-card">
           <div className="stat-icon gold">👥</div>
           <div className="stat-info">
-            <div className="stat-value">{totalCount}</div>
+            <div className="stat-value">{counts.total.toLocaleString()}</div>
             <div className="stat-label">{t('common.all')}</div>
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-icon success">✅</div>
           <div className="stat-info">
-            <div className="stat-value">{members.filter(m => m.status === 'active').length}</div>
+            <div className="stat-value">{counts.active.toLocaleString()}</div>
             <div className="stat-label">{t('common.active')}</div>
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-icon danger">❌</div>
           <div className="stat-info">
-            <div className="stat-value">{members.filter(m => m.status === 'expired').length}</div>
+            <div className="stat-value">{counts.expired.toLocaleString()}</div>
             <div className="stat-label">{t('common.expired')}</div>
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-icon info">❄️</div>
           <div className="stat-info">
-            <div className="stat-value">{members.filter(m => m.status === 'frozen').length}</div>
+            <div className="stat-value">{counts.frozen.toLocaleString()}</div>
             <div className="stat-label">{t('common.frozen')}</div>
           </div>
         </div>
@@ -143,8 +235,8 @@ export default function MembersPage() {
             type="text"
             className={styles.searchInput}
             placeholder={locale === 'ar' ? 'بحث بالاسم أو الهاتف أو رقم العضوية...' : 'Search by name, phone or membership #...'}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
         </div>
         <div className={styles.filterGroup}>
@@ -174,14 +266,22 @@ export default function MembersPage() {
               <th>{locale === 'ar' ? 'الخطة' : 'Plan'}</th>
               <th>{t('members.status')}</th>
               <th>{t('subscriptions.endDate')}</th>
+              <th>{locale === 'ar' ? 'المتبقي' : 'Balance'}</th>
               <th>{t('members.totalVisits')}</th>
               <th>{t('common.actions')}</th>
             </tr>
           </thead>
           <tbody>
-            {filteredMembers.length === 0 ? (
+            {loading ? (
               <tr>
-                <td colSpan="9" style={{ textAlign: 'center', padding: 'var(--space-10)', color: 'var(--pt-gray-500)' }}>
+                <td colSpan="10" style={{ textAlign: 'center', padding: 'var(--space-10)', color: 'var(--pt-gray-500)' }}>
+                  <div style={{ fontSize: '2rem', marginBottom: 'var(--space-2)', animation: 'spin 1s linear infinite', display: 'inline-block' }}>⚡</div>
+                  <div>{t('common.loading')}</div>
+                </td>
+              </tr>
+            ) : filteredMembers.length === 0 ? (
+              <tr>
+                <td colSpan="10" style={{ textAlign: 'center', padding: 'var(--space-10)', color: 'var(--pt-gray-500)' }}>
                   <div style={{ fontSize: '2rem', marginBottom: 'var(--space-2)' }}>📭</div>
                   {t('common.noData')}
                 </td>
@@ -214,6 +314,15 @@ export default function MembersPage() {
                     </td>
                     <td><span className={`badge ${statusInfo.class}`}>● {statusInfo.label}</span></td>
                     <td>{member.endDate?.toDate ? member.endDate.toDate().toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-US') : (member.endDate || '-')}</td>
+                    <td>
+                      {member.balanceDue > 0 ? (
+                        <span className="badge badge-warning" dir="ltr">
+                          {member.balanceDue.toLocaleString()} {t('common.egp')}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--pt-gray-600)' }}>—</span>
+                      )}
+                    </td>
                     <td style={{ fontWeight: 600, color: 'var(--pt-gold)' }}>{member.totalVisits}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
@@ -236,9 +345,37 @@ export default function MembersPage() {
         </table>
       </div>
 
-      {/* Results Count */}
-      <div style={{ marginTop: 'var(--space-4)', color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-sm)' }}>
-        {locale === 'ar' ? `عرض ${filteredMembers.length} من ${totalCount} عضو` : `Showing ${filteredMembers.length} of ${totalCount} members`}
+      {/* Pagination + results count */}
+      <div style={{
+        marginTop: 'var(--space-4)', display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap',
+      }}>
+        <div style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-sm)' }}>
+          {searchQuery
+            ? (locale === 'ar' ? `${filteredMembers.length} نتيجة بحث` : `${filteredMembers.length} search results`)
+            : (locale === 'ar'
+                ? `صفحة ${pageIndex + 1} — عرض ${filteredMembers.length} من ${counts.total.toLocaleString()} عضو`
+                : `Page ${pageIndex + 1} — showing ${filteredMembers.length} of ${counts.total.toLocaleString()} members`)}
+        </div>
+
+        {!searchQuery && (
+          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setPageIndex(i => Math.max(0, i - 1))}
+              disabled={pageIndex === 0 || loading}
+            >
+              {locale === 'ar' ? '→ السابق' : '← Previous'}
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setPageIndex(i => i + 1)}
+              disabled={!hasMore || loading}
+            >
+              {locale === 'ar' ? 'التالي ←' : 'Next →'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Delete Confirmation Modal */}

@@ -7,19 +7,11 @@ import { addTenantDocument, getTenantCollectionCount, getTenantDocuments, setDoc
 import { nextSequentialNumber } from '@/lib/firebase/counters';
 import { logAuditClient } from '@/lib/firebase/audit';
 import { useTenant } from '@/context/TenantContext';
+import { MEMBERSHIP_PLANS } from '@/lib/membership-plans';
+import { buildInstallmentSchedule, splitPayment } from '@/lib/installments';
+import MemberCodeCard from '@/components/MemberCodeCard';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-
-const MEMBERSHIP_PLANS = [
-  { id: 'gold-monthly', name: { ar: 'ذهبي — شهري', en: 'Gold — Monthly' }, type: 'gold', duration: 30, price: 900, sessions: null },
-  { id: 'gold-quarterly', name: { ar: 'ذهبي — ربع سنوي', en: 'Gold — Quarterly' }, type: 'gold', duration: 90, price: 2400, sessions: null },
-  { id: 'gold-semi', name: { ar: 'ذهبي — نصف سنوي', en: 'Gold — Semi-Annual' }, type: 'gold', duration: 180, price: 4200, sessions: null },
-  { id: 'gold-annual', name: { ar: 'ذهبي — سنوي', en: 'Gold — Annual' }, type: 'gold', duration: 365, price: 7200, sessions: null },
-  { id: 'gold-12sessions', name: { ar: 'ذهبي — 12 حصة', en: 'Gold — 12 Sessions' }, type: 'gold', duration: 30, price: 600, sessions: 12 },
-  { id: 'diamond-quarterly', name: { ar: 'ماسي — ربع سنوي', en: 'Diamond — Quarterly' }, type: 'diamond', duration: 90, price: 4500, sessions: null },
-  { id: 'diamond-semi', name: { ar: 'ماسي — نصف سنوي', en: 'Diamond — Semi-Annual' }, type: 'diamond', duration: 180, price: 8000, sessions: null },
-  { id: 'diamond-annual', name: { ar: 'ماسي — سنوي', en: 'Diamond — Annual' }, type: 'diamond', duration: 365, price: 14000, sessions: null },
-];
 
 export default function NewMemberPage() {
   const t = useTranslations();
@@ -32,6 +24,7 @@ export default function NewMemberPage() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [trainers, setTrainers] = useState([]);
+  const [created, setCreated] = useState(null); // { code, name, planName, endDate }
   const [formData, setFormData] = useState({
     fullNameAr: '', fullNameEn: '',
     phone: '', whatsapp: '', email: '',
@@ -44,6 +37,12 @@ export default function NewMemberPage() {
     discount: 0, notes: '',
     createAccount: false, accountEmail: '', accountPassword: '',
     assignedTrainer: '',
+    // Instalments
+    payFull: true,
+    paidNow: '',
+    scheduleInstallments: false,
+    installmentCount: 2,
+    firstDueDate: '',
   });
 
   const handleChange = (field, value) => {
@@ -68,6 +67,13 @@ export default function NewMemberPage() {
     const discountAmount = (selectedPlan.price * formData.discount) / 100;
     return selectedPlan.price - discountAmount;
   };
+
+  // "Pay in full" is the default; otherwise the admin types what the member
+  // actually handed over now and the rest becomes an outstanding balance.
+  const money = splitPayment(
+    calculateTotal(),
+    formData.payFull ? calculateTotal() : formData.paidNow
+  );
 
   const generateMemberNumber = async () => {
     // Atomic, unique, monotonic membership number (seeded from the current count
@@ -155,7 +161,10 @@ export default function NewMemberPage() {
         bloodType: formData.bloodType,
         medicalNotes: formData.medicalNotes,
         fitnessGoal: formData.fitnessGoal,
-        totalVisits: 0, lastVisit: null, totalSpent: calculateTotal(), tags: [], notes: formData.notes,
+        totalVisits: 0, lastVisit: null, totalSpent: money.paid, tags: [], notes: formData.notes,
+        // Denormalised so the scanner and the members table can warn about a
+        // debt without a second read per member.
+        balanceDue: money.remaining,
       };
 
       const { id: memberId, error } = await addTenantDocument(tenantId, 'members', memberData);
@@ -164,6 +173,15 @@ export default function NewMemberPage() {
 
       // Create subscription record
       if (plan) {
+        // Optional dated schedule for whatever is still owed.
+        const schedule = (!money.isFullyPaid && formData.scheduleInstallments)
+          ? buildInstallmentSchedule(
+              money.remaining,
+              formData.installmentCount,
+              formData.firstDueDate ? new Date(formData.firstDueDate).getTime() : Date.now(),
+            )
+          : [];
+
         await addTenantDocument(tenantId, 'subscriptions', {
           memberId,
           planId: plan.id,
@@ -178,7 +196,12 @@ export default function NewMemberPage() {
           freezeDaysUsed: 0,
           maxFreezeDays: 14,
           currentFreezeStart: null,
-          amountPaid: calculateTotal(),
+          // Payment state
+          totalAmount: money.total,
+          amountPaid: money.paid,
+          balanceDue: money.remaining,
+          paymentStatus: money.isFullyPaid ? 'paid' : 'partial',
+          installments: schedule.map(i => ({ ...i, dueDate: Timestamp.fromMillis(i.dueDate) })),
           discountApplied: { percentage: formData.discount, amount: (plan.price * formData.discount) / 100 },
           paymentMethod: formData.paymentMethod,
           invitationsUsed: 0,
@@ -188,25 +211,39 @@ export default function NewMemberPage() {
           createdBy: 'admin',
         });
 
-        // Create payment record
-        await addTenantDocument(tenantId, 'payments', {
-          memberId,
-          memberName: formData.fullNameAr,
-          type: 'subscription',
-          referenceId: plan.id,
-          amount: plan.price,
-          discount: (plan.price * formData.discount) / 100,
-          netAmount: calculateTotal(),
-          method: formData.paymentMethod,
-          status: 'completed',
-          notes: isAr ? 'اشتراك جديد' : 'New subscription',
-          receivedBy: 'admin',
-        });
+        // Record only what was actually collected. A zero-payment signup still
+        // gets no payment row, so revenue reports stay honest.
+        if (money.paid > 0) {
+          await addTenantDocument(tenantId, 'payments', {
+            memberId,
+            memberName: formData.fullNameAr,
+            type: 'subscription',
+            referenceId: plan.id,
+            amount: plan.price,
+            discount: (plan.price * formData.discount) / 100,
+            netAmount: money.paid,
+            totalDue: money.total,
+            balanceAfter: money.remaining,
+            method: formData.paymentMethod,
+            status: 'completed',
+            notes: money.isFullyPaid
+              ? (isAr ? 'اشتراك جديد' : 'New subscription')
+              : (isAr ? 'اشتراك جديد — دفعة مقدمة' : 'New subscription — down payment'),
+            receivedBy: 'admin',
+          });
+        }
       }
 
       logAuditClient({ action: 'create', entity: 'member', entityId: memberId, tenantId, details: { description: { en: `Created member ${memberNumber}`, ar: `إنشاء عضو ${memberNumber}` } } });
       toast.success(t('members.memberCreated'));
-      router.push(`/${locale}/admin/members`);
+      // Show the check-in code instead of redirecting — the admin needs to hand
+      // it to the member, and it was previously never displayed anywhere.
+      setCreated({
+        code: memberNumber,
+        name: formData.fullNameAr,
+        planName: plan ? plan.name[locale] : '',
+        endDate: plan ? endDate.toLocaleDateString(isAr ? 'ar-EG' : 'en-US') : '',
+      });
     } catch (err) {
       console.error('Error creating member:', err);
       toast.error(isAr ? 'حدث خطأ أثناء إضافة العضو' : 'Error adding member');
@@ -219,6 +256,49 @@ export default function NewMemberPage() {
     { num: 2, label: isAr ? 'بيانات صحية' : 'Health Info', icon: '🏥' },
     { num: 3, label: isAr ? 'الاشتراك والدفع' : 'Plan & Payment', icon: '💳' },
   ];
+
+  // Success view — the member's check-in code, ready to print or copy.
+  if (created) {
+    return (
+      <div className="animate-fadeIn">
+        <div className="page-header">
+          <h1><span>👤</span> {t('members.addMember')}</h1>
+        </div>
+        <MemberCodeCard
+          code={created.code}
+          memberName={created.name}
+          planName={created.planName}
+          endDate={created.endDate}
+          isAr={isAr}
+        />
+        <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'center', marginTop: 'var(--space-6)', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={() => router.push(`/${locale}/admin/members`)}>
+            👥 {isAr ? 'قائمة الأعضاء' : 'Members list'}
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setCreated(null);
+              setStep(1);
+              setFormData(prev => ({
+                ...prev,
+                fullNameAr: '', fullNameEn: '', phone: '', whatsapp: '', email: '',
+                dateOfBirth: '', nationalId: '', address: '',
+                emergencyName: '', emergencyPhone: '', emergencyRelation: '',
+                height: '', weight: '', medicalNotes: '', notes: '',
+                selectedPlan: '', discount: 0,
+                createAccount: false, accountEmail: '', accountPassword: '',
+                payFull: true, paidNow: '', scheduleInstallments: false,
+                installmentCount: 2, firstDueDate: '',
+              }));
+            }}
+          >
+            + {isAr ? 'إضافة عضو آخر' : 'Add another member'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fadeIn">
@@ -520,6 +600,110 @@ export default function NewMemberPage() {
             </div>
           </div>
 
+          {/* ===== Instalments ===== */}
+          {selectedPlan && (
+            <div style={{
+              margin: 'var(--space-4) 0', padding: 'var(--space-4)',
+              background: 'rgba(79,195,247,0.06)', border: '1px solid rgba(79,195,247,0.18)',
+              borderRadius: 'var(--radius-md)',
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)' }}>
+                💰 {isAr ? 'طريقة السداد' : 'Payment terms'}
+              </div>
+
+              <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap', marginBottom: 'var(--space-3)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input type="radio" name="payMode" checked={formData.payFull}
+                    onChange={() => handleChange('payFull', true)}
+                    style={{ accentColor: 'var(--pt-gold)' }} />
+                  {isAr ? 'دفع كامل' : 'Pay in full'}
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input type="radio" name="payMode" checked={!formData.payFull}
+                    onChange={() => handleChange('payFull', false)}
+                    style={{ accentColor: 'var(--pt-gold)' }} />
+                  {isAr ? 'تقسيط / دفعة مقدمة' : 'Instalments / down payment'}
+                </label>
+              </div>
+
+              {!formData.payFull && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                    <div className="form-group">
+                      <label className="form-label">{isAr ? 'المدفوع الآن' : 'Paid now'}</label>
+                      <input className="form-input" type="number" dir="ltr" min={0}
+                        max={calculateTotal()} value={formData.paidNow}
+                        onChange={e => handleChange('paidNow', e.target.value)}
+                        placeholder="0" />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">{isAr ? 'المتبقي' : 'Remaining'}</label>
+                      <div className="form-input" style={{
+                        display: 'flex', alignItems: 'center',
+                        color: money.remaining > 0 ? 'var(--pt-warning)' : 'var(--pt-success)',
+                        fontWeight: 800,
+                      }} dir="ltr">
+                        {money.remaining.toLocaleString()} {t('common.egp')}
+                      </div>
+                    </div>
+                  </div>
+
+                  {money.remaining > 0 && (
+                    <>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: 'var(--space-3)' }}>
+                        <input type="checkbox" checked={formData.scheduleInstallments}
+                          onChange={e => handleChange('scheduleInstallments', e.target.checked)}
+                          style={{ width: 18, height: 18, accentColor: 'var(--pt-gold)' }} />
+                        <span style={{ fontSize: 'var(--font-size-sm)' }}>
+                          {isAr ? 'جدولة المتبقي على أقساط بتواريخ' : 'Split the balance into dated instalments'}
+                        </span>
+                      </label>
+
+                      {formData.scheduleInstallments && (
+                        <>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                            <div className="form-group">
+                              <label className="form-label">{isAr ? 'عدد الأقساط' : 'Number of instalments'}</label>
+                              <input className="form-input" type="number" dir="ltr" min={1} max={24}
+                                value={formData.installmentCount}
+                                onChange={e => handleChange('installmentCount', Math.max(1, Math.min(24, Number(e.target.value) || 1)))} />
+                            </div>
+                            <div className="form-group">
+                              <label className="form-label">{isAr ? 'تاريخ أول قسط' : 'First due date'}</label>
+                              <input className="form-input" type="date" dir="ltr"
+                                value={formData.firstDueDate}
+                                onChange={e => handleChange('firstDueDate', e.target.value)} />
+                            </div>
+                          </div>
+
+                          {/* Live preview so the admin sees exactly what will be saved */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: 'var(--space-2)' }}>
+                            {buildInstallmentSchedule(
+                              money.remaining,
+                              formData.installmentCount,
+                              formData.firstDueDate ? new Date(formData.firstDueDate).getTime() : Date.now(),
+                            ).map(inst => (
+                              <div key={inst.number} style={{
+                                display: 'flex', justifyContent: 'space-between',
+                                fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-400)',
+                                padding: '6px 10px', background: 'var(--pt-darker)', borderRadius: 'var(--radius-sm)',
+                              }}>
+                                <span>{isAr ? `قسط ${inst.number}` : `Instalment ${inst.number}`}</span>
+                                <span dir="ltr">
+                                  {inst.amount.toLocaleString()} {t('common.egp')} · {new Date(inst.dueDate).toLocaleDateString(isAr ? 'ar-EG' : 'en-US')}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           <div className="form-group">
             <label className="form-label">{t('common.notes')}</label>
             <textarea className="form-input" value={formData.notes} rows={2}
@@ -551,9 +735,25 @@ export default function NewMemberPage() {
                 <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: 'var(--space-2)', marginTop: 'var(--space-1)', display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ fontWeight: 800 }}>{t('common.total')}</span>
                   <span style={{ fontWeight: 900, color: 'var(--pt-gold)', fontSize: 'var(--font-size-xl)' }}>
-                    {calculateTotal().toLocaleString()} {t('common.egp')}
+                    {money.total.toLocaleString()} {t('common.egp')}
                   </span>
                 </div>
+                {!money.isFullyPaid && (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-sm)' }}>
+                      <span style={{ color: 'var(--pt-gray-400)' }}>{isAr ? 'المدفوع الآن' : 'Paid now'}</span>
+                      <span style={{ color: 'var(--pt-success)', fontWeight: 700 }}>
+                        {money.paid.toLocaleString()} {t('common.egp')}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-sm)' }}>
+                      <span style={{ color: 'var(--pt-gray-400)' }}>{isAr ? 'المتبقي' : 'Remaining'}</span>
+                      <span style={{ color: 'var(--pt-warning)', fontWeight: 800 }}>
+                        {money.remaining.toLocaleString()} {t('common.egp')}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}

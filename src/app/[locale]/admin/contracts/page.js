@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { getTenantDocuments, addTenantDocument, updateTenantDocument, deleteTenantDocument } from '@/lib/firebase/firestore';
+import MemberPicker from '@/components/MemberPicker';
 import { useTenant } from '@/context/TenantContext';
 import toast from 'react-hot-toast';
 
@@ -30,12 +31,10 @@ export default function AdminContractsPage() {
   const loadData = async () => {
     if (!tenantId) { setLoading(false); return; }
     try {
-      const [contractsRes, membersRes] = await Promise.all([
-        getTenantDocuments(tenantId, 'contracts', [], { field: 'createdAt', direction: 'desc' }),
-        getTenantDocuments(tenantId, 'members'),
-      ]);
+      const contractsRes = await getTenantDocuments(tenantId, 'contracts', [],
+        { field: 'createdAt', direction: 'desc' }, 200);
       setContracts(contractsRes.data || []);
-      setMembers(membersRes.data || []);
+      // Members are chosen with a search picker — no full-collection load.
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -227,19 +226,16 @@ export default function AdminContractsPage() {
             <div className="modal-body">
               <div className="form-group">
                 <label className="form-label">{isAr ? 'العضو' : 'Member'} *</label>
-                {members.length > 0 ? (
-                  <select className="form-select" value={form.memberId} onChange={e => {
-                    const member = members.find(m => m.id === e.target.value);
-                    setForm(f => ({ ...f, memberId: e.target.value, memberName: member?.name?.[locale] || member?.name?.ar || '' }));
-                  }}>
-                    <option value="">{isAr ? '— اختر عضو —' : '— Select Member —'}</option>
-                    {members.map(m => (
-                      <option key={m.id} value={m.id}>{m.name?.[locale] || m.name?.ar}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input className="form-input" value={form.memberName} onChange={e => setForm(f => ({ ...f, memberName: e.target.value }))} placeholder={isAr ? 'اسم العضو' : 'Member name'} />
-                )}
+                <MemberPicker
+                  tenantId={tenantId}
+                  value={form.memberId}
+                  isAr={isAr}
+                  onChange={(id, member) => setForm(f => ({
+                    ...f,
+                    memberId: id,
+                    memberName: member?.fullName?.[locale] || member?.fullName?.ar || '',
+                  }))}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">{isAr ? 'نوع العقد' : 'Contract Type'} *</label>

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments } from '@/lib/firebase/firestore';
+import { getTenantDocuments, getTenantDocumentsByIds } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 
 export default function InvoicesPage() {
@@ -25,8 +25,9 @@ export default function InvoicesPage() {
         const { data: pays } = await getTenantDocuments(tenantId, 'payments', [],
           { field: 'createdAt', direction: 'desc' }, 200);
         setPayments(pays || []);
-        const { data: mems } = await getTenantDocuments(tenantId, 'members');
-        setMembers(mems || []);
+        // Only the members referenced by the invoices on screen.
+        const memberMap = await getTenantDocumentsByIds(tenantId, 'members', (pays || []).map(p => p.memberId));
+        setMembers([...memberMap.values()]);
       } catch (err) { console.error(err); }
       setLoading(false);
     }

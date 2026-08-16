@@ -5,7 +5,9 @@ import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments, addTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
 import { nextSequentialNumber } from '@/lib/firebase/counters';
+import { applyPaymentToMemberBalance } from '@/lib/firebase/balance';
 import { logAuditClient } from '@/lib/firebase/audit';
+import MemberPicker from '@/components/MemberPicker';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -26,7 +28,7 @@ export default function PaymentsPage() {
 
   // New payment form
   const [payForm, setPayForm] = useState({
-    memberId: '', type: 'subscription', amount: '', discount: 0, method: 'cash', notes: '',
+    memberId: '', member: null, type: 'subscription', amount: '', discount: 0, method: 'cash', notes: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -41,9 +43,8 @@ export default function PaymentsPage() {
         { field: 'createdAt', direction: 'desc' }, 100);
       setPayments(data || []);
 
-      const { data: membersList } = await getTenantDocuments(tenantId, 'members', [],
-        { field: 'fullName.ar', direction: 'asc' });
-      setMembers(membersList || []);
+      // Members are chosen with a search picker now — loading the whole
+      // collection here was ~6 MB per page view at 5k members.
 
       // Calculate stats
       const now = new Date();
@@ -90,7 +91,7 @@ export default function PaymentsPage() {
     if (!tenantId || !payForm.memberId || !payForm.amount) return;
     setSaving(true);
 
-    const member = members.find(m => m.id === payForm.memberId);
+    const member = payForm.member;
     const net = Number(payForm.amount) - Number(payForm.discount);
 
     try {
@@ -108,10 +109,16 @@ export default function PaymentsPage() {
         invoiceNumber: await nextSequentialNumber(tenantId, 'invoices', 'INV', payments.length),
       });
 
+      // If this member owes money, apply the payment to their outstanding
+      // balance and tick off any instalments it covers.
+      if (payForm.type === 'installment' || (member?.balanceDue || 0) > 0) {
+        await applyPaymentToMemberBalance(tenantId, payForm.memberId, net);
+      }
+
       logAuditClient({ action: 'create', entity: 'payment', entityId: payId, tenantId, details: { description: { en: `Recorded ${payForm.type} payment`, ar: `تسجيل دفعة ${payForm.type}` }, after: { amount: net, method: payForm.method } } });
       toast.success(t('finance.paymentRecorded'));
       setShowNewPayment(false);
-      setPayForm({ memberId: '', type: 'subscription', amount: '', discount: 0, method: 'cash', notes: '' });
+      setPayForm({ memberId: '', member: null, type: 'subscription', amount: '', discount: 0, method: 'cash', notes: '' });
       loadData();
     } catch (err) {
       console.error(err);
@@ -123,6 +130,7 @@ export default function PaymentsPage() {
   const methodIcons = { cash: '💵', visa: '💳', bank_transfer: '🏦', online: '🌐' };
   const typeLabels = {
     subscription: isAr ? 'اشتراك' : 'Subscription',
+    installment: isAr ? 'قسط' : 'Instalment',
     spa: isAr ? 'سبا' : 'Spa',
     personal_training: isAr ? 'تدريب خاص' : 'Personal Training',
     product: isAr ? 'منتج' : 'Product',
@@ -243,13 +251,30 @@ export default function PaymentsPage() {
             <div className="modal-body">
               <div className="form-group">
                 <label className="form-label">{t('subscriptions.selectMember')} *</label>
-                <select className="form-select" value={payForm.memberId}
-                  onChange={e => setPayForm(f => ({ ...f, memberId: e.target.value }))}>
-                  <option value="">{t('common.select')}...</option>
-                  {members.map(m => (
-                    <option key={m.id} value={m.id}>{m.fullName?.[locale] || m.fullName?.ar} — {m.membershipNumber}</option>
-                  ))}
-                </select>
+                <MemberPicker
+                  tenantId={tenantId}
+                  value={payForm.memberId}
+                  isAr={isAr}
+                  onChange={(id, member) => setPayForm(f => ({
+                    ...f,
+                    memberId: id,
+                    member,
+                    // Default the amount to what they owe, so settling a
+                    // balance is one click.
+                    amount: member?.balanceDue > 0 ? String(member.balanceDue) : f.amount,
+                    type: member?.balanceDue > 0 ? 'installment' : f.type,
+                  }))}
+                />
+                {payForm.member?.balanceDue > 0 && (
+                  <div style={{
+                    marginTop: 'var(--space-2)', padding: '8px 12px',
+                    background: 'rgba(255,145,0,0.1)', border: '1px solid rgba(255,145,0,0.3)',
+                    borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-sm)',
+                    color: 'var(--pt-warning)', fontWeight: 700,
+                  }}>
+                    ⚠️ {isAr ? 'متبقي على هذا العضو' : 'Outstanding balance'}: {payForm.member.balanceDue.toLocaleString()} {t('common.egp')}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
                 <div className="form-group">

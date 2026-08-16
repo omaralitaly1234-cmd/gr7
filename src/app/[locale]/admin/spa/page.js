@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments, addTenantDocument, updateTenantDocument } from '@/lib/firebase/firestore';
+import MemberPicker from '@/components/MemberPicker';
 import { nextSequentialNumber } from '@/lib/firebase/counters';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
@@ -33,7 +34,7 @@ export default function SpaPage() {
   const [showBooking, setShowBooking] = useState(false);
   const [dateFilter, setDateFilter] = useState('today');
   const [bookForm, setBookForm] = useState({
-    memberId: '', serviceId: 'steam', duration: 60, price: 150, notes: '',
+    memberId: '', member: null, serviceId: 'steam', duration: 60, price: 150, notes: '',
     scheduledTime: '', paymentMethod: 'cash',
   });
 
@@ -52,9 +53,7 @@ export default function SpaPage() {
         [{ field: 'createdAt', operator: '>=', value: Timestamp.fromDate(startDate) }],
         { field: 'createdAt', direction: 'desc' });
       setBookings(data || []);
-
-      const { data: mems } = await getTenantDocuments(tenantId, 'members');
-      setMembers(mems || []);
+      // Members are picked via search now — no full-collection load on mount.
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -68,7 +67,8 @@ export default function SpaPage() {
   const handleBook = async () => {
     if (!tenantId || !bookForm.memberId || !bookForm.serviceId) return;
     try {
-      const member = members.find(m => m.id === bookForm.memberId);
+      // The picker hands us the full member doc, so no lookup list is needed.
+      const member = bookForm.member;
       const service = SPA_SERVICES.find(s => s.id === bookForm.serviceId);
 
       await addTenantDocument(tenantId, 'spa_bookings', {
@@ -99,7 +99,7 @@ export default function SpaPage() {
 
       toast.success(isAr ? 'تم الحجز بنجاح' : 'Booking confirmed');
       setShowBooking(false);
-      setBookForm({ memberId: '', serviceId: 'steam', duration: 60, price: 150, notes: '', scheduledTime: '', paymentMethod: 'cash' });
+      setBookForm({ memberId: '', member: null, serviceId: 'steam', duration: 60, price: 150, notes: '', scheduledTime: '', paymentMethod: 'cash' });
       loadData();
     } catch (err) {
       toast.error(t('common.error'));
@@ -232,10 +232,12 @@ export default function SpaPage() {
             <div className="modal-body">
               <div className="form-group">
                 <label className="form-label">{t('subscriptions.selectMember')} *</label>
-                <select className="form-select" value={bookForm.memberId} onChange={e => setBookForm(f => ({ ...f, memberId: e.target.value }))}>
-                  <option value="">{t('common.select')}...</option>
-                  {members.map(m => (<option key={m.id} value={m.id}>{m.fullName?.[locale] || m.fullName?.ar} — {m.membershipNumber}</option>))}
-                </select>
+                <MemberPicker
+                  tenantId={tenantId}
+                  value={bookForm.memberId}
+                  isAr={isAr}
+                  onChange={(id, member) => setBookForm(f => ({ ...f, memberId: id, member }))}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">{t('spa.service')} *</label>

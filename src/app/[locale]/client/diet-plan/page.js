@@ -19,7 +19,9 @@ export default function ClientDietPlanPage() {
     async function load() {
       if (!tenantId || !memberData) { setLoading(false); return; }
       try {
-        const { data } = await getTenantDocuments(tenantId, 'diet-plans',
+        // Canonical snake_case name — the trainer writes to `diet_plans`, so
+        // the old kebab-case spelling here always came back empty.
+        const { data } = await getTenantDocuments(tenantId, 'diet_plans',
           [{ field: 'memberId', operator: '==', value: memberData.id }, { field: 'status', operator: '==', value: 'active' }],
           { field: 'createdAt', direction: 'desc' }, 1);
         setDietPlan(data?.[0] || null);

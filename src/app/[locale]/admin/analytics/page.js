@@ -24,12 +24,17 @@ export default function AnalyticsPage() {
     async function loadData() {
       if (!tenantId) { setLoading(false); return; }
       try {
-        const { data: mems } = await getTenantDocuments(tenantId, 'members');
+        // Members are only used for plan/gender breakdowns. Bounded to the most
+        // recent 1000 rather than the whole collection (6+ MB at 5k members);
+        // the charts are trend indicators, not an audited census.
+        const { data: mems } = await getTenantDocuments(tenantId, 'members', [],
+          { field: 'createdAt', direction: 'desc' }, 1000);
         const { data: pays } = await getTenantDocuments(tenantId, 'payments', [], { field: 'createdAt', direction: 'desc' }, 500);
         const now = new Date();
         const monthStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
         const { data: att } = await getTenantDocuments(tenantId, 'attendance',
-          [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(monthStart) }]);
+          [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(monthStart) }],
+          { field: 'checkIn', direction: 'desc' }, 3000);
         setMembers(mems || []);
         setPayments(pays || []);
         setAttendance(att || []);

@@ -22,10 +22,12 @@ export default function AdminForecastPage() {
     async function load() {
       if (!tenantId) { setLoading(false); return; }
       try {
+        // Forecasting reads recent history, not the entire archive. All three
+        // queries were previously unbounded (~10 MB combined at 5k members).
         const [membersRes, subsRes, expRes] = await Promise.all([
-          getTenantDocuments(tenantId, 'members'),
-          getTenantDocuments(tenantId, 'subscriptions'),
-          getTenantDocuments(tenantId, 'expenses'),
+          getTenantDocuments(tenantId, 'members', [], { field: 'createdAt', direction: 'desc' }, 1000),
+          getTenantDocuments(tenantId, 'subscriptions', [], { field: 'createdAt', direction: 'desc' }, 1000),
+          getTenantDocuments(tenantId, 'expenses', [], { field: 'createdAt', direction: 'desc' }, 500),
         ]);
         setMembers(membersRes.data || []);
         setSubscriptions(subsRes.data || []);

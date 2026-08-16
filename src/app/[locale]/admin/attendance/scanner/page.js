@@ -311,6 +311,18 @@ export default function AttendanceScannerPage() {
                       {memberData.gender === 'male' ? '♂️' : '♀️'} {t(`common.${memberData.gender}`)} •
                       📊 {memberData.totalVisits || 0} {isAr ? 'زيارة' : 'visits'}
                     </p>
+                    {/* Outstanding balance is informational only — check-in is
+                        never blocked by it, the front desk just needs to see it. */}
+                    {memberData.balanceDue > 0 && (
+                      <div style={{
+                        marginTop: 'var(--space-3)', padding: '10px 14px',
+                        background: 'rgba(255,145,0,0.12)', border: '1px solid var(--pt-warning)',
+                        borderRadius: 'var(--radius-sm)', color: 'var(--pt-warning)',
+                        fontWeight: 800, fontSize: 'var(--font-size-sm)',
+                      }}>
+                        💰 {isAr ? 'متبقي عليه' : 'Owes'}: {memberData.balanceDue.toLocaleString()} {t('common.egp')}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

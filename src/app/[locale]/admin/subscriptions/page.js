@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getTenantDocuments, updateTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments, updateTenantDocument, getTenantDocumentsByIds, getTenantCollectionCount } from '@/lib/firebase/firestore';
 import { computeFreeze } from '@/lib/subscription-math';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
@@ -22,22 +22,48 @@ export default function SubscriptionsPage() {
   const [loading, setLoading] = useState(true);
   const [filterPlan, setFilterPlan] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [statusCounts, setStatusCounts] = useState({ total: 0, active: 0, expired: 0, frozen: 0 });
   const [showFreezeModal, setShowFreezeModal] = useState(null);
   const [freezeReason, setFreezeReason] = useState('travel');
   const [freezeDays, setFreezeDays] = useState(7);
 
+  const PAGE_SIZE = 50;
+
   useEffect(() => {
     loadData();
-  }, [tenantId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, filterStatus]);
 
   const loadData = async () => {
     if (!tenantId) { setLoading(false); return; }
+    setLoading(true);
     try {
-      const { data: subs } = await getTenantDocuments(tenantId, 'subscriptions', [],
-        { field: 'createdAt', direction: 'desc' });
-      const { data: mems } = await getTenantDocuments(tenantId, 'members');
-      setSubscriptions(subs || []);
-      setMembers(mems || []);
+      // Only the newest page of subscriptions, and only the members those rows
+      // reference — this used to pull both collections in full (~10 MB at 5k
+      // members) to render one screen.
+      const filters = filterStatus !== 'all'
+        ? [{ field: 'status', operator: '==', value: filterStatus }]
+        : [];
+      const { data: subs } = await getTenantDocuments(tenantId, 'subscriptions', filters,
+        { field: 'createdAt', direction: 'desc' }, PAGE_SIZE);
+      const rows = subs || [];
+      setSubscriptions(rows);
+
+      const memberMap = await getTenantDocumentsByIds(tenantId, 'members', rows.map(s => s.memberId));
+      setMembers([...memberMap.values()]);
+
+      const [total, active, expired, frozen] = await Promise.all([
+        getTenantCollectionCount(tenantId, 'subscriptions'),
+        getTenantCollectionCount(tenantId, 'subscriptions', [{ field: 'status', operator: '==', value: 'active' }]),
+        getTenantCollectionCount(tenantId, 'subscriptions', [{ field: 'status', operator: '==', value: 'expired' }]),
+        getTenantCollectionCount(tenantId, 'subscriptions', [{ field: 'status', operator: '==', value: 'frozen' }]),
+      ]);
+      setStatusCounts({
+        total: total.count || 0,
+        active: active.count || 0,
+        expired: expired.count || 0,
+        frozen: frozen.count || 0,
+      });
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -58,18 +84,11 @@ export default function SubscriptionsPage() {
     return Math.max(0, Math.ceil((end - new Date()) / (1000 * 60 * 60 * 24)));
   };
 
+  // Status is filtered server-side; plan type is a cheap in-page refinement.
   const filtered = subscriptions.filter(s => {
     if (filterPlan !== 'all' && s.planSnapshot?.type !== filterPlan) return false;
-    if (filterStatus !== 'all' && s.status !== filterStatus) return false;
     return true;
   });
-
-  const statusCounts = {
-    total: subscriptions.length,
-    active: subscriptions.filter(s => s.status === 'active').length,
-    expired: subscriptions.filter(s => s.status === 'expired').length,
-    frozen: subscriptions.filter(s => s.status === 'frozen').length,
-  };
 
   // Freeze extends the end date UP-FRONT by N days (consistent with the member
   // and member-detail freeze paths). Unfreeze only clears the frozen status.

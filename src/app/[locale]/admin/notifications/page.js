@@ -4,8 +4,10 @@ import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments, addTenantDocument, updateTenantDocument } from '@/lib/firebase/firestore';
+import { db } from '@/lib/firebase/config';
+import MemberPicker from '@/components/MemberPicker';
 import { useTenant } from '@/context/TenantContext';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, collection, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
 export default function NotificationsPage() {
@@ -32,8 +34,8 @@ export default function NotificationsPage() {
       const { data } = await getTenantDocuments(tenantId, 'notifications', [],
         { field: 'createdAt', direction: 'desc' }, 100);
       setNotifications(data || []);
-      const { data: mems } = await getTenantDocuments(tenantId, 'members');
-      setMembers(mems || []);
+      // Members are NOT loaded here any more — the individual target uses a
+      // search picker, and a broadcast queries its recipients at send time.
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -60,29 +62,43 @@ export default function NotificationsPage() {
           sentAt: Timestamp.fromDate(new Date()),
         });
       } else {
-        // Broadcast: create individual notification for each matching member
-        let targetMembers = members;
-        if (composeForm.target === 'active') {
-          targetMembers = members.filter(m => m.status === 'active');
-        } else if (composeForm.target === 'expired') {
-          targetMembers = members.filter(m => m.status === 'expired');
+        // Broadcast: one notification doc per recipient, but written in batches
+        // of 500 (Firestore's per-batch limit) instead of thousands of separate
+        // addDoc round-trips. Recipients are queried server-side at send time.
+        const filters = composeForm.target === 'active'
+          ? [{ field: 'status', operator: '==', value: 'active' }]
+          : composeForm.target === 'expired'
+            ? [{ field: 'status', operator: '==', value: 'expired' }]
+            : [];
+        const { data: recipients } = await getTenantDocuments(tenantId, 'members', filters);
+        const targets = (recipients || []).filter(m => m.status !== 'archived');
+
+        if (targets.length === 0) {
+          toast.error(isAr ? 'لا يوجد أعضاء مطابقون' : 'No matching members');
+          return;
         }
-        // Create a notification for each member
-        const promises = targetMembers.map(m =>
-          addTenantDocument(tenantId, 'notifications', {
-            title: composeForm.title,
-            body: composeForm.message,
-            message: composeForm.message,
-            type: composeForm.type,
-            target: composeForm.target,
-            memberId: m.id,
-            icon: typeIcons[composeForm.type] || '📢',
-            status: 'sent',
-            read: false,
-            sentAt: Timestamp.fromDate(new Date()),
-          })
-        );
-        await Promise.all(promises);
+
+        const payload = {
+          title: composeForm.title,
+          body: composeForm.message,
+          message: composeForm.message,
+          type: composeForm.type,
+          target: composeForm.target,
+          icon: typeIcons[composeForm.type] || '📢',
+          status: 'sent',
+          read: false,
+          sentAt: Timestamp.fromDate(new Date()),
+        };
+
+        const col = collection(db, `tenants/${tenantId}/notifications`);
+        for (let i = 0; i < targets.length; i += 500) {
+          const batch = writeBatch(db);
+          for (const m of targets.slice(i, i + 500)) {
+            batch.set(doc(col), { ...payload, memberId: m.id, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+          }
+          await batch.commit();
+        }
+        toast.success(isAr ? `تم الإرسال إلى ${targets.length} عضو` : `Sent to ${targets.length} members`);
       }
       toast.success(isAr ? 'تم إرسال الإشعار' : 'Notification sent');
       setShowCompose(false);
@@ -225,10 +241,12 @@ export default function NotificationsPage() {
               {composeForm.target === 'individual' && (
                 <div className="form-group">
                   <label className="form-label">{t('subscriptions.selectMember')}</label>
-                  <select className="form-select" value={composeForm.memberId} onChange={e => setComposeForm(f => ({ ...f, memberId: e.target.value }))}>
-                    <option value="">{t('common.select')}...</option>
-                    {members.map(m => (<option key={m.id} value={m.id}>{m.fullName?.[locale] || m.fullName?.ar}</option>))}
-                  </select>
+                  <MemberPicker
+                    tenantId={tenantId}
+                    value={composeForm.memberId}
+                    isAr={isAr}
+                    onChange={(id) => setComposeForm(f => ({ ...f, memberId: id }))}
+                  />
                 </div>
               )}
               <div className="form-group">

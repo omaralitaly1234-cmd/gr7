@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  documentId,
   getDoc,
   getDocs,
   addDoc,
@@ -242,6 +243,33 @@ export async function deleteTenantDocument(tenantId, collectionName, docId) {
 // Get count from tenant's sub-collection
 export async function getTenantCollectionCount(tenantId, collectionName, filters = []) {
   return getCollectionCount(getTenantPath(tenantId, collectionName), filters);
+}
+
+/**
+ * Fetch a specific set of documents by id, in chunks of 30 (Firestore's `in`
+ * limit). Returns a Map of id -> doc.
+ *
+ * This exists because several admin pages used to load an ENTIRE collection
+ * just to resolve a handful of names for the rows they render. With ~5k members
+ * that was a multi-megabyte download per page view; fetching only the ids that
+ * are actually on screen turns it into one or two small reads.
+ */
+export async function getTenantDocumentsByIds(tenantId, collectionName, ids) {
+  const unique = [...new Set((ids || []).filter(Boolean))];
+  const out = new Map();
+  if (unique.length === 0) return out;
+
+  const path = getTenantPath(tenantId, collectionName);
+  const chunks = [];
+  for (let i = 0; i < unique.length; i += 30) chunks.push(unique.slice(i, i + 30));
+
+  const snapshots = await Promise.all(
+    chunks.map((chunk) => getDocs(query(collection(db, path), where(documentId(), 'in', chunk))))
+  );
+  for (const snap of snapshots) {
+    snap.docs.forEach((d) => out.set(d.id, { id: d.id, ...d.data() }));
+  }
+  return out;
 }
 
 /**

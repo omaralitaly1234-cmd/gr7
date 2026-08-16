@@ -16,6 +16,7 @@ const adminMenuItems = [
   { key: 'classes', icon: '🏋️', path: '/admin/classes' },
   { key: 'employees', icon: '👔', path: '/admin/employees' },
   { key: 'shifts', icon: '⏰', path: '/admin/employees/shifts', translationKey: 'sidebar.shifts' },
+  { key: 'debts', icon: '🧮', path: '/admin/debts', translationKey: 'sidebar.debts' },
   { key: 'payments', icon: '💰', path: '/admin/finance/payments' },
   { key: 'invoices', icon: '🧾', path: '/admin/finance/invoices' },
   { key: 'reports', icon: '📈', path: '/admin/finance/reports' },

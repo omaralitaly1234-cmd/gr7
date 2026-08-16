@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getTenantDocuments, updateTenantDocument, addTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments, updateTenantDocument, addTenantDocument, getTenantDocumentsByIds } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -28,10 +28,11 @@ export default function RenewalRequestsPage() {
     if (!tenantId) { setLoading(false); return; }
     try {
       const { data: reqs } = await getTenantDocuments(tenantId, 'renewal-requests', [],
-        { field: 'createdAt', direction: 'desc' });
-      const { data: mems } = await getTenantDocuments(tenantId, 'members');
+        { field: 'createdAt', direction: 'desc' }, 200);
       setRequests(reqs || []);
-      setMembers(mems || []);
+      // Only the members these requests reference, not the whole collection.
+      const memberMap = await getTenantDocumentsByIds(tenantId, 'members', (reqs || []).map(r => r.memberId));
+      setMembers([...memberMap.values()]);
     } catch (err) { console.error(err); }
     setLoading(false);
   };

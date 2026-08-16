@@ -44,3 +44,11 @@ implementation_plan.md
 advanced_specifications.md
 # DB backups (contain member PII - never commit)
 _db-backups/
+
+# Member import artefacts — these contain member PII and PLAINTEXT PASSWORDS.
+# Never commit them.
+member-credentials.*
+imported-codes.json
+active_output.txt
+expired_output.txt
+*.xlsx

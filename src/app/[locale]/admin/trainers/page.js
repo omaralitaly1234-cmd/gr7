@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, addTenantDocument, updateTenantDocument, deleteTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments, addTenantDocument, updateTenantDocument, deleteTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -33,13 +33,21 @@ export default function TrainersPage() {
     try {
       const { data } = await getTenantDocuments(tenantId, 'trainers', [],
         { field: 'createdAt', direction: 'desc' });
-      
-      // Enrich with client counts
-      const { data: members } = await getTenantDocuments(tenantId, 'members');
-      const enriched = (data || []).map(tr => {
-        const clientCount = (members || []).filter(m => m.assignedTrainer === tr.id || m.assignedTrainer === tr.uid || m.assignedTrainerDocId === tr.id).length;
-        return { ...tr, clientCount };
-      });
+
+      // Client counts via count() aggregations — one small query per trainer,
+      // instead of downloading every member document to tally them in JS.
+      const enriched = await Promise.all((data || []).map(async (tr) => {
+        const [byUid, byDocId] = await Promise.all([
+          tr.uid
+            ? getTenantCollectionCount(tenantId, 'members', [{ field: 'assignedTrainer', operator: '==', value: tr.uid }])
+            : Promise.resolve({ count: 0 }),
+          getTenantCollectionCount(tenantId, 'members', [{ field: 'assignedTrainerDocId', operator: '==', value: tr.id }]),
+        ]);
+        // The two fields are denormalised duplicates of the same link, so take
+        // the larger rather than summing (which would double-count members that
+        // have both set).
+        return { ...tr, clientCount: Math.max(byUid.count || 0, byDocId.count || 0) };
+      }));
       setTrainers(enriched);
     } catch (err) { console.error(err); }
     setLoading(false);

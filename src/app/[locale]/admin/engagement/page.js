@@ -24,7 +24,9 @@ export default function AdminEngagementPage() {
           // recency-focused, and this caps memory/reads (was an unbounded load
           // of the entire attendance collection).
           getTenantDocuments(tenantId, 'attendance', [], { field: 'createdAt', direction: 'desc' }, 2000),
-          getTenantDocuments(tenantId, 'members'),
+          // Bounded like the attendance query above — engagement is a recency
+          // view, and loading every member was the remaining unbounded read.
+          getTenantDocuments(tenantId, 'members', [], { field: 'createdAt', direction: 'desc' }, 1000),
         ]);
         setAttendance(attRes.data || []);
         setMembers(memRes.data || []);

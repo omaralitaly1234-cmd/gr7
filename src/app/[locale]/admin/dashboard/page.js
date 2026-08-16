@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getTenantDocuments, getTenantCollectionCount } from '@/lib/firebase/firestore';
+import { getTenantDocuments, getTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
 
@@ -40,20 +40,33 @@ export default function AdminDashboardPage() {
       const sevenDaysLater = new Date(now);
       sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
 
-      // 1) Members stats
-      const { data: allMembers } = await getTenantDocuments(tenantId, 'members');
-      const members = allMembers || [];
-      const activeCount = members.filter(m => m.status === 'active').length;
-      const expiredCount = members.filter(m => m.status === 'expired').length;
-      const frozenCount = members.filter(m => m.status === 'frozen').length;
-      const maleCount = members.filter(m => m.gender === 'male').length;
-      const femaleCount = members.filter(m => m.gender === 'female').length;
+      // 1) Members stats — count() aggregations. These used to load every member
+      // document (6+ MB at 5k members) just to compute six numbers.
+      const [totalC, activeC, expiredC, frozenC, maleC, femaleC] = await Promise.all([
+        getTenantCollectionCount(tenantId, 'members'),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'active' }]),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'expired' }]),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'frozen' }]),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'gender', operator: '==', value: 'male' }]),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'gender', operator: '==', value: 'female' }]),
+      ]);
+      const totalCount = totalC.count || 0;
+      const activeCount = activeC.count || 0;
+      const expiredCount = expiredC.count || 0;
+      const frozenCount = frozenC.count || 0;
+      const maleCount = maleC.count || 0;
+      const femaleCount = femaleC.count || 0;
 
-      // 2) Today's attendance
-      const { data: todayAtt } = await getTenantDocuments(tenantId, 'attendance',
-        [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(todayStart) }],
-        { field: 'checkIn', direction: 'desc' });
-      setTodayAttendance(todayAtt?.slice(0, 10) || []);
+      // 2) Today's attendance — the list shows 10, and the count comes from a
+      // count() aggregation rather than downloading every row.
+      const [{ data: todayAtt }, todayAttCount] = await Promise.all([
+        getTenantDocuments(tenantId, 'attendance',
+          [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(todayStart) }],
+          { field: 'checkIn', direction: 'desc' }, 10),
+        getTenantCollectionCount(tenantId, 'attendance',
+          [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(todayStart) }]),
+      ]);
+      setTodayAttendance(todayAtt || []);
 
       // 3) Payments — recent + revenue calculations
       const { data: allPayments } = await getTenantDocuments(tenantId, 'payments', [],
@@ -69,30 +82,37 @@ export default function AdminDashboardPage() {
         if (date && date >= monthStart) monthRev += amount;
       });
 
-      // 4) Expiring subscriptions (next 7 days)
-      const { data: activeSubs } = await getTenantDocuments(tenantId, 'subscriptions',
-        [{ field: 'status', operator: '==', value: 'active' }]);
-      const expiring = (activeSubs || []).filter(sub => {
-        const endDate = sub.endDate?.toDate ? sub.endDate.toDate() : null;
-        return endDate && endDate <= sevenDaysLater && endDate >= todayStart;
-      });
+      // 4) Expiring subscriptions (next 7 days) — filtered by date range on the
+      // SERVER. Previously this pulled every active subscription (~5k docs) and
+      // threw almost all of them away in JS.
+      const { data: expiringSubs } = await getTenantDocuments(tenantId, 'subscriptions', [
+        { field: 'status', operator: '==', value: 'active' },
+        { field: 'endDate', operator: '>=', value: Timestamp.fromDate(todayStart) },
+        { field: 'endDate', operator: '<=', value: Timestamp.fromDate(sevenDaysLater) },
+      ], { field: 'endDate', direction: 'asc' });
+      const expiring = expiringSubs || [];
 
-      // Map expiring subs to member info via an id→member Map (O(1) lookups)
-      const memberById = new Map(members.map(m => [m.id, m]));
-      const expiringWithNames = expiring.map(sub => {
-        const member = memberById.get(sub.memberId);
-        return { ...sub, memberName: member?.fullName?.[locale] || member?.fullName?.ar || '—', phone: member?.phone || '' };
-      });
-      setExpiringMembers(expiringWithNames.slice(0, 5));
+      // Resolve names for the handful we actually display, one read each,
+      // instead of loading the whole members collection to build a lookup map.
+      const top = expiring.slice(0, 5);
+      const expiringWithNames = await Promise.all(top.map(async (sub) => {
+        const { data: member } = await getTenantDocument(tenantId, 'members', sub.memberId);
+        return {
+          ...sub,
+          memberName: member?.fullName?.[locale] || member?.fullName?.ar || '—',
+          phone: member?.phone || '',
+        };
+      }));
+      setExpiringMembers(expiringWithNames);
 
       setStats({
-        totalMembers: members.length,
+        totalMembers: totalCount,
         activeMembers: activeCount,
         expiredMembers: expiredCount,
         frozenMembers: frozenCount,
         maleMembers: maleCount,
         femaleMembers: femaleCount,
-        todayVisits: todayAtt?.length || 0,
+        todayVisits: todayAttCount.count || 0,
         todayRevenue: todayRev,
         monthRevenue: monthRev,
         expiringSoon: expiring.length,

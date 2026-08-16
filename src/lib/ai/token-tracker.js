@@ -1,129 +1,112 @@
 // ===== AI Token Usage Tracker =====
-// Tracks per-user monthly AI usage and enforces plan limits
-// Uses Firestore for persistent storage (production-ready)
+// Tracks per-user monthly AI usage and enforces plan limits.
+//
+// SERVER ONLY. This module runs exclusively inside /api/ai/* route handlers, so
+// it uses the Admin SDK. It previously imported the CLIENT SDK (`firebase/firestore`
+// + lib/firebase/config), which has no authenticated user on the server, so every
+// read and write was rejected by the security rules. Because the failures were
+// swallowed and `getMonthlyUsage` returned zero usage, `checkLimit` always reported
+// "under budget" — the monthly spend cap was never enforced and no usage document
+// ever existed in Firestore.
 
 import { AI_PLANS } from './ai-config';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  increment,
-  arrayUnion,
-  serverTimestamp,
-  Timestamp,
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase/config';
+import { getAdminDb } from '@/lib/firebase/admin';
 
-// Get current month key (YYYY-MM)
+const FieldValue = () => require('firebase-admin').firestore.FieldValue;
+
+// Current month key (YYYY-MM)
 function getMonthKey() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
-// Get usage document path for a user
-function getUsagePath(userId) {
-  return `aiUsage/${userId}`;
-}
+const userRef = (db, userId) => db.collection('aiUsage').doc(userId);
+const monthRef = (db, userId) =>
+  db.collection('aiUsage').doc(userId).collection('months').doc(getMonthKey());
 
-function getMonthPath(userId) {
-  return `aiUsage/${userId}/months/${getMonthKey()}`;
-}
-
-/**
- * Ensure user document exists with plan info
- */
-async function ensureUserDoc(userId) {
-  const userRef = doc(db, getUsagePath(userId));
-  const userSnap = await getDoc(userRef);
-  if (!userSnap.exists()) {
-    await setDoc(userRef, {
-      plan: 'free',
-      createdAt: serverTimestamp(),
-    });
+/** Ensure the per-user doc exists; returns its data. */
+async function ensureUserDoc(db, userId) {
+  const ref = userRef(db, userId);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    await ref.set({ plan: 'free', createdAt: FieldValue().serverTimestamp() });
+    return { plan: 'free' };
   }
-  return userSnap.exists() ? userSnap.data() : { plan: 'free' };
+  return snap.data();
 }
 
-/**
- * Ensure monthly usage document exists
- */
-async function ensureMonthDoc(userId) {
-  const monthRef = doc(db, getMonthPath(userId));
-  const monthSnap = await getDoc(monthRef);
-  if (!monthSnap.exists()) {
-    await setDoc(monthRef, {
+/** Ensure the per-month doc exists; returns its data. */
+async function ensureMonthDoc(db, userId) {
+  const ref = monthRef(db, userId);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    const seed = {
       totalTokens: 0,
       totalCostUSD: 0,
       requestCount: 0,
+      recentRequests: [],
       month: getMonthKey(),
-      createdAt: serverTimestamp(),
-    });
-    return { totalTokens: 0, totalCostUSD: 0, requestCount: 0 };
+      createdAt: FieldValue().serverTimestamp(),
+    };
+    await ref.set(seed);
+    return seed;
   }
-  return monthSnap.data();
+  return snap.data();
 }
 
 /**
- * Track a new AI usage
+ * Record one AI call.
+ *
+ * The counter update and the recent-request log are a single atomic update so
+ * concurrent calls from the same user cannot lose each other's increments.
  */
 export async function trackUsage(userId, { feature, inputTokens, outputTokens, costUSD }) {
   try {
-    await ensureUserDoc(userId);
-    await ensureMonthDoc(userId);
+    const db = getAdminDb();
+    if (!db) throw new Error('Admin SDK unavailable');
 
-    const monthRef = doc(db, getMonthPath(userId));
+    await ensureUserDoc(db, userId);
+    const current = await ensureMonthDoc(db, userId);
 
-    // Atomically update usage counters
-    await updateDoc(monthRef, {
-      totalTokens: increment(inputTokens + outputTokens),
-      totalCostUSD: increment(costUSD),
-      requestCount: increment(1),
-      lastRequestAt: serverTimestamp(),
-    });
-
-    // Log the request in a sub-array (keep last 50 for audit)
-    // Using a separate recent requests doc to avoid document size limits
-    const recentRef = doc(db, `aiUsage/${userId}/months/${getMonthKey()}`);
-    const recentSnap = await getDoc(recentRef);
-    const currentRequests = recentSnap.data()?.recentRequests || [];
-    
-    const newRequest = {
+    const entry = {
       feature,
-      inputTokens,
-      outputTokens,
-      costUSD,
+      inputTokens: inputTokens || 0,
+      outputTokens: outputTokens || 0,
+      costUSD: costUSD || 0,
       timestamp: new Date().toISOString(),
     };
+    // Keep the last 50 for audit without letting the doc grow unbounded.
+    const recentRequests = [...(current.recentRequests || []), entry].slice(-50);
 
-    // Keep only last 50 requests to prevent document bloat
-    const updatedRequests = [...currentRequests, newRequest].slice(-50);
-    await updateDoc(recentRef, { recentRequests: updatedRequests });
+    await monthRef(db, userId).update({
+      totalTokens: FieldValue().increment((inputTokens || 0) + (outputTokens || 0)),
+      totalCostUSD: FieldValue().increment(costUSD || 0),
+      requestCount: FieldValue().increment(1),
+      lastRequestAt: FieldValue().serverTimestamp(),
+      recentRequests,
+    });
 
-    const updatedSnap = await getDoc(monthRef);
-    const data = updatedSnap.data();
-
+    const updated = (await monthRef(db, userId).get()).data() || {};
     return {
-      totalCostUSD: data.totalCostUSD || 0,
-      totalTokens: data.totalTokens || 0,
-      requestCount: data.requestCount || 0,
+      totalCostUSD: updated.totalCostUSD || 0,
+      totalTokens: updated.totalTokens || 0,
+      requestCount: updated.requestCount || 0,
     };
   } catch (error) {
     console.error('[TokenTracker] Failed to track usage:', error.message);
-    // Graceful fallback — don't block the AI response
-    return { totalCostUSD: 0, totalTokens: 0, requestCount: 0 };
+    return { totalCostUSD: 0, totalTokens: 0, requestCount: 0, error: error.message };
   }
 }
 
-/**
- * Get monthly usage for a user
- */
+/** Monthly usage snapshot for a user. */
 export async function getMonthlyUsage(userId) {
   try {
-    const userData = await ensureUserDoc(userId);
-    const monthData = await ensureMonthDoc(userId);
-    const plan = userData.plan === 'premium' ? AI_PLANS.PREMIUM : AI_PLANS.FREE;
+    const db = getAdminDb();
+    if (!db) throw new Error('Admin SDK unavailable');
 
+    const userData = await ensureUserDoc(db, userId);
+    const monthData = await ensureMonthDoc(db, userId);
+    const plan = userData.plan === 'premium' ? AI_PLANS.PREMIUM : AI_PLANS.FREE;
     const totalCost = monthData.totalCostUSD || 0;
 
     return {
@@ -138,11 +121,13 @@ export async function getMonthlyUsage(userId) {
       requestCount: monthData.requestCount || 0,
       requests: monthData.recentRequests || [],
       month: getMonthKey(),
+      degraded: false,
     };
   } catch (error) {
     console.error('[TokenTracker] Failed to get usage:', error.message);
-    // Return safe defaults
     const plan = AI_PLANS.FREE;
+    // `degraded` tells checkLimit that this figure is NOT a real reading, so it
+    // can fail closed instead of waving every request through.
     return {
       plan: 'free',
       planNameAr: plan.nameAr,
@@ -155,37 +140,52 @@ export async function getMonthlyUsage(userId) {
       requestCount: 0,
       requests: [],
       month: getMonthKey(),
+      degraded: true,
+      error: error.message,
     };
   }
 }
 
 /**
- * Check if user has exceeded their limit
+ * Is the user over their monthly budget?
+ *
+ * Fails CLOSED: if usage could not be read, the request is blocked rather than
+ * allowed. Silently allowing on error is what made the cap meaningless.
  */
 export async function checkLimit(userId) {
   const usage = await getMonthlyUsage(userId);
+  if (usage.degraded) {
+    return {
+      isLimitReached: true,
+      isNearLimit: true,
+      degraded: true,
+      reason: 'usage_unavailable',
+      usage,
+    };
+  }
   return {
     isLimitReached: usage.usedUSD >= usage.monthlyLimitUSD,
     isNearLimit: usage.usagePercent >= 80,
+    degraded: false,
     usage,
   };
 }
 
-/**
- * Get remaining budget in USD
- */
+/** Remaining budget in USD. */
 export async function getRemainingBudget(userId) {
   const usage = await getMonthlyUsage(userId);
   return usage.remainingUSD;
 }
 
-/**
- * Upgrade user to premium plan
- */
+/** Move a user onto the premium AI plan. */
 export async function upgradeToPremium(userId) {
   try {
-    const userRef = doc(db, getUsagePath(userId));
-    await setDoc(userRef, { plan: 'premium', upgradedAt: serverTimestamp() }, { merge: true });
+    const db = getAdminDb();
+    if (!db) throw new Error('Admin SDK unavailable');
+    await userRef(db, userId).set(
+      { plan: 'premium', upgradedAt: FieldValue().serverTimestamp() },
+      { merge: true },
+    );
     return { success: true, plan: 'premium' };
   } catch (error) {
     console.error('[TokenTracker] Upgrade failed:', error.message);
@@ -193,13 +193,15 @@ export async function upgradeToPremium(userId) {
   }
 }
 
-/**
- * Downgrade user to free plan
- */
+/** Move a user back to the free AI plan. */
 export async function downgradeToFree(userId) {
   try {
-    const userRef = doc(db, getUsagePath(userId));
-    await setDoc(userRef, { plan: 'free', downgradedAt: serverTimestamp() }, { merge: true });
+    const db = getAdminDb();
+    if (!db) throw new Error('Admin SDK unavailable');
+    await userRef(db, userId).set(
+      { plan: 'free', downgradedAt: FieldValue().serverTimestamp() },
+      { merge: true },
+    );
     return { success: true, plan: 'free' };
   } catch (error) {
     console.error('[TokenTracker] Downgrade failed:', error.message);
@@ -207,28 +209,15 @@ export async function downgradeToFree(userId) {
   }
 }
 
-/**
- * Get usage breakdown by feature
- */
+/** Cost split per feature for the current month. */
 export async function getUsageByFeature(userId) {
-  try {
-    const monthRef = doc(db, getMonthPath(userId));
-    const monthSnap = await getDoc(monthRef);
-    const requests = monthSnap.data()?.recentRequests || [];
-
-    const breakdown = {};
-    requests.forEach(req => {
-      if (!breakdown[req.feature]) {
-        breakdown[req.feature] = { count: 0, costUSD: 0, tokens: 0 };
-      }
-      breakdown[req.feature].count++;
-      breakdown[req.feature].costUSD += req.costUSD;
-      breakdown[req.feature].tokens += (req.inputTokens + req.outputTokens);
-    });
-
-    return breakdown;
-  } catch (error) {
-    console.error('[TokenTracker] Failed to get breakdown:', error.message);
-    return {};
+  const usage = await getMonthlyUsage(userId);
+  const byFeature = {};
+  for (const r of usage.requests || []) {
+    if (!byFeature[r.feature]) byFeature[r.feature] = { requests: 0, tokens: 0, costUSD: 0 };
+    byFeature[r.feature].requests += 1;
+    byFeature[r.feature].tokens += (r.inputTokens || 0) + (r.outputTokens || 0);
+    byFeature[r.feature].costUSD += r.costUSD || 0;
   }
+  return byFeature;
 }

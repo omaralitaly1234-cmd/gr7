@@ -352,12 +352,30 @@ service cloud.firestore {
     match /auditLogs/{logId} {
       // Only Super Admin can read audit logs
       allow read: if isSuperAdmin();
-      
+
       // Any authenticated user can create (logging actions)
       allow create: if isAuthenticated();
-      
+
       // NEVER allow update or delete — audit logs are immutable
       allow update, delete: if false;
+    }
+
+    // ==================== AI Usage & Spend Cap ====================
+    // Written ONLY by the Admin SDK inside /api/ai/* (which bypasses rules), so
+    // no client write is ever legitimate here. A user may read their own usage
+    // to render the "budget remaining" UI; Super Admin can read everyone's.
+    //
+    // Client writes are denied outright: if the browser could edit these
+    // counters, any member could zero out their spend and make the monthly cap
+    // meaningless.
+    match /aiUsage/{userId} {
+      allow read: if isSuperAdmin() || (isAuthenticated() && request.auth.uid == userId);
+      allow write: if false;
+
+      match /months/{monthId} {
+        allow read: if isSuperAdmin() || (isAuthenticated() && request.auth.uid == userId);
+        allow write: if false;
+      }
     }
   }
 }

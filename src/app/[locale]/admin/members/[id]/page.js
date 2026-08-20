@@ -6,6 +6,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { getTenantDocument, getTenantDocuments, updateTenantDocument, addTenantDocument } from '@/lib/firebase/firestore';
 import { computeFreeze } from '@/lib/subscription-math';
 import { useTenant } from '@/context/TenantContext';
+import { useAuth } from '@/lib/hooks/useAuth';
+import { authPost } from '@/lib/authenticated-fetch';
 import { Timestamp } from 'firebase/firestore';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -18,6 +20,7 @@ export default function MemberProfilePage() {
   const memberId = params?.id;
   const isAr = locale === 'ar';
   const { tenantId } = useTenant();
+  const { tenantRole, isSuperAdmin } = useAuth();
 
   const [member, setMember] = useState(null);
   const [subscriptions, setSubscriptions] = useState([]);
@@ -35,6 +38,11 @@ export default function MemberProfilePage() {
   const [showTrainerModal, setShowTrainerModal] = useState(false);
   const [selectedTrainerId, setSelectedTrainerId] = useState('');
   const [assigningTrainer, setAssigningTrainer] = useState(false);
+  // 0 = closed, 1 = first warning, 2 = final "forever" confirmation
+  const [deleteStep, setDeleteStep] = useState(0);
+  const [deleting, setDeleting] = useState(false);
+
+  const canDelete = tenantRole === 'owner' || isSuperAdmin;
 
   useEffect(() => {
     async function loadMember() {
@@ -184,6 +192,33 @@ export default function MemberProfilePage() {
     setAssigningTrainer(false);
   };
 
+  // Permanent delete — wipes the member plus every record linked to them.
+  // Runs server-side (Admin SDK) because the cascade spans ~17 collections and
+  // the member's Auth account, which the client SDK cannot touch.
+  const handleDeleteMember = async () => {
+    if (!tenantId || !memberId || deleting) return;
+    setDeleting(true);
+    try {
+      const res = await authPost('/api/admin/members/delete', { tenantId, memberId });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        toast.error(data.message || (isAr ? 'تعذّر حذف العضو' : 'Could not delete member'));
+        setDeleting(false);
+        return;
+      }
+      if (data.warnings?.length) {
+        toast(isAr ? 'تم حذف العضو، لكن تعذّر حذف حساب الدخول بالكامل' : 'Member deleted, but the login account was not fully removed');
+      }
+      toast.success(isAr ? 'تم حذف العضو نهائياً' : 'Member permanently deleted');
+      setDeleteStep(0);
+      router.replace(`/${locale}/admin/members`);
+    } catch (err) {
+      console.error('[DeleteMember]', err);
+      toast.error(isAr ? 'حدث خطأ أثناء حذف العضو' : 'Error deleting member');
+      setDeleting(false);
+    }
+  };
+
   if (loading) return (
     <div style={{ minHeight: '50vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ textAlign: 'center' }}>
@@ -308,6 +343,20 @@ export default function MemberProfilePage() {
           >
             👨‍🏫 {member.assignedTrainer ? (isAr ? 'تغيير المدرب' : 'Change Trainer') : (isAr ? 'تخصيص مدرب' : 'Assign Trainer')}
           </button>
+          {canDelete && (
+            <button
+              className="btn btn-sm"
+              onClick={() => setDeleteStep(1)}
+              style={{
+                marginInlineStart: 'auto',
+                background: 'var(--pt-danger-bg)',
+                color: 'var(--pt-danger)',
+                border: '1px solid var(--pt-danger)',
+              }}
+            >
+              🗑️ {isAr ? 'حذف العضو' : 'Delete Member'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -599,6 +648,67 @@ export default function MemberProfilePage() {
               <button className="btn btn-secondary" onClick={() => setShowTrainerModal(false)}>{t('common.cancel')}</button>
               <button className="btn btn-primary" onClick={handleAssignTrainer} disabled={assigningTrainer}>
                 {assigningTrainer ? '⏳' : '✅'} {selectedTrainerId ? (isAr ? 'تخصيص المدرب' : 'Assign Trainer') : (isAr ? 'إلغاء التخصيص' : 'Remove Assignment')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete — step 1: warning */}
+      {deleteStep === 1 && (
+        <div className="modal-overlay" onClick={() => setDeleteStep(0)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+            <div className="modal-header">
+              <h2 style={{ color: 'var(--pt-danger)' }}>⚠️ {isAr ? 'حذف العضو' : 'Delete Member'}</h2>
+              <button onClick={() => setDeleteStep(0)} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 'var(--space-3)' }}>
+                {isAr
+                  ? `أنت على وشك حذف العضو "${name}" (${member.membershipNumber || '—'}).`
+                  : `You are about to delete member "${name}" (${member.membershipNumber || '—'}).`}
+              </p>
+              <div style={{ padding: 'var(--space-3)', background: 'var(--pt-danger-bg)', border: '1px solid var(--pt-danger)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-sm)', color: 'var(--pt-danger)' }}>
+                {isAr
+                  ? 'سيتم حذف كل بياناته: الاشتراكات، المدفوعات، الحضور، القياسات، الرسائل وحساب الدخول الخاص به.'
+                  : 'All of their data will be removed: subscriptions, payments, attendance, measurements, messages and their login account.'}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setDeleteStep(0)}>{t('common.cancel')}</button>
+              <button className="btn btn-danger" onClick={() => setDeleteStep(2)}>
+                🗑️ {isAr ? 'متابعة' : 'Continue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete — step 2: final, irreversible confirmation */}
+      {deleteStep === 2 && (
+        <div className="modal-overlay" onClick={() => { if (!deleting) setDeleteStep(0); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460, border: '1px solid var(--pt-danger)' }}>
+            <div className="modal-header">
+              <h2 style={{ color: 'var(--pt-danger)' }}>🚨 {isAr ? 'تأكيد نهائي' : 'Final Confirmation'}</h2>
+              <button onClick={() => { if (!deleting) setDeleteStep(0); }} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div className="modal-body" style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '3rem', marginBottom: 'var(--space-3)' }}>🗑️</div>
+              <p style={{ fontWeight: 800, fontSize: 'var(--font-size-lg)', color: 'var(--pt-danger)', marginBottom: 'var(--space-2)' }}>
+                {isAr ? 'هذا العضو سيُحذف إلى الأبد!' : 'This member will be deleted forever!'}
+              </p>
+              <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)' }}>
+                {isAr
+                  ? 'لا يمكن التراجع عن هذه الخطوة ولا يمكن استرجاع البيانات. هل أنت متأكد؟'
+                  : 'This action cannot be undone and the data cannot be recovered. Are you sure?'}
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setDeleteStep(0)} disabled={deleting}>
+                {t('common.cancel')}
+              </button>
+              <button className="btn btn-danger" onClick={handleDeleteMember} disabled={deleting}>
+                {deleting ? '⏳' : '🗑️'} {isAr ? 'نعم، احذف نهائياً' : 'Yes, delete permanently'}
               </button>
             </div>
           </div>

@@ -43,8 +43,14 @@ export default function MemberProfilePage() {
   const [deleteStep, setDeleteStep] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const [showRenewModal, setShowRenewModal] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetForm, setResetForm] = useState({ next: '', confirm: '' });
+  const [resetting, setResetting] = useState(false);
+  const [resetDone, setResetDone] = useState(null); // { password, email, sessionsRevoked }
 
+  // Owner-only, matching the delete action and firestore.rules.
   const canDelete = tenantRole === 'owner' || isSuperAdmin;
+  const canResetPassword = canDelete;
 
   // Hoisted out of the effect so a renewal can refresh the page in place.
   const loadMember = useCallback(async () => {
@@ -192,6 +198,45 @@ export default function MemberProfilePage() {
       toast.error(isAr ? 'حدث خطأ أثناء تخصيص المدرب' : 'Error assigning trainer');
     }
     setAssigningTrainer(false);
+  };
+
+  // Reset the member's login password. Works for every member with an account —
+  // unlike the stored accountPassword, which only the bulk-imported members have.
+  const handleResetPassword = async () => {
+    if (resetting) return;
+    if (resetForm.next.length < 6) {
+      toast.error(isAr ? 'كلمة المرور 6 أحرف على الأقل' : 'Password must be at least 6 characters');
+      return;
+    }
+    if (resetForm.next !== resetForm.confirm) {
+      toast.error(isAr ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match');
+      return;
+    }
+    setResetting(true);
+    try {
+      const res = await authPost('/api/admin/members/reset-password', {
+        tenantId, memberId, newPassword: resetForm.next,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        toast.error(data.message || (isAr ? 'تعذّر تغيير كلمة السر' : 'Could not reset the password'));
+        setResetting(false);
+        return;
+      }
+      setResetDone({ password: resetForm.next, email: data.email, sessionsRevoked: data.sessionsRevoked });
+      setResetForm({ next: '', confirm: '' });
+      toast.success(isAr ? 'تم تغيير كلمة السر ✅' : 'Password reset ✅');
+    } catch (err) {
+      console.error('[ResetPassword]', err);
+      toast.error(isAr ? 'حدث خطأ' : 'Something went wrong');
+    }
+    setResetting(false);
+  };
+
+  const closeResetModal = () => {
+    setShowResetModal(false);
+    setResetForm({ next: '', confirm: '' });
+    setResetDone(null);
   };
 
   // Permanent delete — wipes the member plus every record linked to them.
@@ -345,6 +390,15 @@ export default function MemberProfilePage() {
           >
             👨‍🏫 {member.assignedTrainer ? (isAr ? 'تغيير المدرب' : 'Change Trainer') : (isAr ? 'تخصيص مدرب' : 'Assign Trainer')}
           </button>
+          {canResetPassword && member.uid && (
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => setShowResetModal(true)}
+              style={{ color: 'var(--pt-warning)', borderColor: 'var(--pt-warning)' }}
+            >
+              🔑 {isAr ? 'إعادة تعيين كلمة السر' : 'Reset Password'}
+            </button>
+          )}
           {canDelete && (
             <button
               className="btn btn-sm"
@@ -666,6 +720,111 @@ export default function MemberProfilePage() {
           onClose={() => setShowRenewModal(false)}
           onRenewed={loadMember}
         />
+      )}
+
+      {/* Reset password */}
+      {showResetModal && (
+        <div className="modal-overlay" onClick={() => { if (!resetting) closeResetModal(); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+            <div className="modal-header">
+              <h2>🔑 {isAr ? 'إعادة تعيين كلمة السر' : 'Reset Password'}</h2>
+              <button onClick={() => { if (!resetting) closeResetModal(); }} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+
+            {!resetDone ? (
+              <>
+                <div className="modal-body">
+                  <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+                    {isAr
+                      ? `اكتب كلمة سر جديدة لـ ${name}، وبعد الحفظ قولهاله. هيتم تسجيل خروجه من أي جهاز مفتوح.`
+                      : `Set a new password for ${name} and read it out to them. Any device they are signed in on will be signed out.`}
+                  </p>
+                  <div className="form-group" style={{ marginBottom: 'var(--space-3)' }}>
+                    <label className="form-label">{isAr ? 'كلمة السر الجديدة' : 'New password'}</label>
+                    <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                      <input className="form-input" type="text" dir="ltr" autoComplete="new-password"
+                        value={resetForm.next}
+                        onChange={e => setResetForm(f => ({ ...f, next: e.target.value }))}
+                        placeholder={isAr ? '6 أحرف على الأقل' : 'Min 6 characters'} />
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        title={isAr ? 'توليد كلمة سر' : 'Generate'}
+                        onClick={() => {
+                          // Ambiguous characters left out — the owner reads this aloud.
+                          const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
+                          const bytes = new Uint32Array(10);
+                          crypto.getRandomValues(bytes);
+                          const pw = Array.from(bytes, b => alphabet[b % alphabet.length]).join('');
+                          setResetForm({ next: pw, confirm: pw });
+                        }}
+                      >🎲</button>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">{isAr ? 'تأكيد كلمة السر' : 'Confirm password'}</label>
+                    <input className="form-input" type="text" dir="ltr" autoComplete="new-password"
+                      value={resetForm.confirm}
+                      onChange={e => setResetForm(f => ({ ...f, confirm: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-secondary" onClick={closeResetModal} disabled={resetting}>
+                    {t('common.cancel')}
+                  </button>
+                  <button className="btn btn-primary" onClick={handleResetPassword} disabled={resetting}>
+                    {resetting ? '⏳' : '🔑'} {isAr ? 'تغيير كلمة السر' : 'Reset password'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="modal-body" style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: 'var(--space-2)' }}>✅</div>
+                  <p style={{ marginBottom: 'var(--space-4)', color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)' }}>
+                    {isAr ? 'قول للعضو البيانات دي:' : 'Give the member these details:'}
+                  </p>
+                  {resetDone.email && (
+                    <div style={{ marginBottom: 'var(--space-3)' }}>
+                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>{isAr ? 'البريد' : 'Email'}</div>
+                      <code dir="ltr" style={{ fontSize: 'var(--font-size-md)', background: 'var(--pt-darker)', padding: '6px 12px', borderRadius: 6, display: 'inline-block' }}>
+                        {resetDone.email}
+                      </code>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>{isAr ? 'كلمة السر' : 'Password'}</div>
+                  <code dir="ltr" style={{
+                    fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--pt-gold)',
+                    background: 'var(--pt-gold-glow)', padding: '10px 18px', borderRadius: 8,
+                    display: 'inline-block', letterSpacing: 1,
+                  }}>
+                    {resetDone.password}
+                  </code>
+                  <div style={{ marginTop: 'var(--space-3)' }}>
+                    <button className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(resetDone.password);
+                        toast.success(isAr ? 'تم النسخ' : 'Copied');
+                      }}
+                    >📋 {isAr ? 'نسخ' : 'Copy'}</button>
+                  </div>
+                  <p style={{ marginTop: 'var(--space-4)', fontSize: 'var(--font-size-xs)', color: 'var(--pt-warning)' }}>
+                    {isAr
+                      ? 'لن تظهر كلمة السر دي تاني بعد ما تقفل النافذة.'
+                      : 'This password will not be shown again after you close this window.'}
+                  </p>
+                  {resetDone.sessionsRevoked === false && (
+                    <p style={{ marginTop: 'var(--space-2)', fontSize: 'var(--font-size-xs)', color: 'var(--pt-danger)' }}>
+                      {isAr ? 'ملاحظة: لم يتم تسجيل الخروج من الأجهزة القديمة.' : 'Note: existing sessions were not signed out.'}
+                    </p>
+                  )}
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-primary" onClick={closeResetModal}>{t('common.close')}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Delete — step 1: warning */}

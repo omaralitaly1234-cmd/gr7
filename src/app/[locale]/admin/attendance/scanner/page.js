@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments } from '@/lib/firebase/firestore';
+import { getTenantDocuments, getTenantCollectionCount } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import ScannedMemberPanel from '@/components/ScannedMemberPanel';
@@ -32,16 +32,22 @@ export default function AttendanceScannerPage() {
   const scannerRef = useRef(null);
   const html5QrCode = useRef(null);
 
-  // Load today's attendance count
+  // Today's tally + the five most recent scans. The count is a server-side
+  // aggregation and the list is capped at five: this used to download every
+  // check-in of the day just to call .length and slice(0, 5) off it, on a page
+  // the front desk leaves open from open to close.
   useEffect(() => {
     async function loadTodayCount() {
       if (!tenantId) return;
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const { data } = await getTenantDocuments(tenantId, 'attendance',
-        [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(today) }]);
-      setTodayCount(data?.length || 0);
-      setRecentScans(data?.slice(0, 5) || []);
+      const filter = [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(today) }];
+      const [countRes, recentRes] = await Promise.all([
+        getTenantCollectionCount(tenantId, 'attendance', filter),
+        getTenantDocuments(tenantId, 'attendance', filter, { field: 'checkIn', direction: 'desc' }, 5),
+      ]);
+      setTodayCount(countRes.count || 0);
+      setRecentScans(recentRes.data || []);
     }
     loadTodayCount();
   }, [tenantId]);

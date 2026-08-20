@@ -1,14 +1,21 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getTenantDocuments, updateTenantDocument } from '@/lib/firebase/firestore';
+import { updateTenantDocument, getTenantPath } from '@/lib/firebase/firestore';
+import { db } from '@/lib/firebase/config';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useMemberData } from '@/lib/hooks/useMemberData';
 
 /**
- * Real-time notification popup — polls every 10 seconds for new unread
- * notifications and shows an animated banner when one arrives.
+ * Real-time notification popup.
+ *
+ * This used to re-run the same 20-document query every 10 seconds for as long
+ * as a member had the app open — 6 queries a minute each, forever, competing
+ * with whatever page they were actually trying to load. It is now a single
+ * snapshot listener: Firestore pushes changes, and after the first snapshot
+ * only documents that actually changed are transferred.
  */
 export default function NotificationPopup() {
   const params = useParams();
@@ -21,59 +28,51 @@ export default function NotificationPopup() {
   const [visible, setVisible] = useState(false);
   const seenIdsRef = useRef(new Set());
   const firstRunRef = useRef(true);
-  const timerRef = useRef(null);
   const hideTimerRef = useRef(null);
 
-  const checkNotifications = useCallback(async () => {
-    if (!tenantId || !memberData) return;
-    try {
-      const { data } = await getTenantDocuments(
-        tenantId,
-        'notifications',
-        [{ field: 'memberId', operator: '==', value: memberData.id }],
-        { field: 'createdAt', direction: 'desc' },
-        20
-      );
-      const docs = data || [];
+  const memberId = memberData?.id;
 
-      // First run — just record what already exists
+  useEffect(() => {
+    if (!tenantId || !memberId || memberLoading) return;
+
+    firstRunRef.current = true;
+    seenIdsRef.current = new Set();
+
+    const q = query(
+      collection(db, getTenantPath(tenantId, 'notifications')),
+      where('memberId', '==', memberId),
+      orderBy('createdAt', 'desc'),
+      limit(20),
+    );
+
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // First snapshot is the existing backlog — record it, don't pop it up.
       if (firstRunRef.current) {
         firstRunRef.current = false;
         docs.forEach(d => seenIdsRef.current.add(d.id));
         return;
       }
 
-      // Find new unread notification we haven't seen yet
       const newNotif = docs.find(d => !seenIdsRef.current.has(d.id) && !d.read);
+      docs.forEach(d => seenIdsRef.current.add(d.id));
+
       if (newNotif) {
-        seenIdsRef.current.add(newNotif.id);
         setPopup(newNotif);
         setVisible(true);
-        // Auto-hide after 8 seconds
         if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
         hideTimerRef.current = setTimeout(() => setVisible(false), 8000);
       }
-      // Track all current IDs
-      docs.forEach(d => seenIdsRef.current.add(d.id));
-    } catch (err) {
-      console.error('NotificationPopup poll error:', err);
-    }
-  }, [tenantId, memberData]);
-
-  useEffect(() => {
-    if (!tenantId || !memberData || memberLoading) return;
-
-    // Initial check
-    checkNotifications();
-
-    // Poll every 10 seconds
-    timerRef.current = setInterval(checkNotifications, 10000);
+    }, (err) => {
+      console.error('NotificationPopup listener error:', err);
+    });
 
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      unsubscribe();
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, [tenantId, memberData, memberLoading, checkNotifications]);
+  }, [tenantId, memberId, memberLoading]);
 
   const handleOpen = async () => {
     if (popup) {

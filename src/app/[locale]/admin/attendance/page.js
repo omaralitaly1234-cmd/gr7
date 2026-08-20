@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments } from '@/lib/firebase/firestore';
+import { getTenantDocuments, getTenantCollectionCount } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
 import Link from 'next/link';
@@ -44,16 +44,19 @@ export default function AttendanceLogsPage() {
         { field: 'checkIn', direction: 'desc' }, 200);
       setAttendance(data || []);
 
-      // Counts
+      // Counts come from count() aggregations. This used to download every
+      // check-in of the last seven days — thousands of documents at a busy gym —
+      // purely to call .length on them and filter for today.
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const weekStart = new Date(now); weekStart.setDate(weekStart.getDate() - 7);
-      const { data: allRecent } = await getTenantDocuments(tenantId, 'attendance',
-        [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(weekStart) }]);
-      setWeekCount(allRecent?.length || 0);
-      setTodayCount((allRecent || []).filter(a => {
-        const d = a.checkIn?.toDate ? a.checkIn.toDate() : null;
-        return d && d >= todayStart;
-      }).length);
+      const [week, today] = await Promise.all([
+        getTenantCollectionCount(tenantId, 'attendance',
+          [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(weekStart) }]),
+        getTenantCollectionCount(tenantId, 'attendance',
+          [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(todayStart) }]),
+      ]);
+      setWeekCount(week.count || 0);
+      setTodayCount(today.count || 0);
     } catch (err) { console.error(err); }
     setLoading(false);
   };

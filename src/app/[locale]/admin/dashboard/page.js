@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getTenantDocuments, getTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
+import { getTenantDocuments, getTenantDocument, getTenantCollectionCount, getTenantFieldSum } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
 
@@ -40,16 +40,60 @@ export default function AdminDashboardPage() {
       const sevenDaysLater = new Date(now);
       sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
 
-      // 1) Members stats — count() aggregations. These used to load every member
-      // document (6+ MB at 5k members) just to compute six numbers.
-      const [totalC, activeC, expiredC, frozenC, maleC, femaleC] = await Promise.all([
-        getTenantCollectionCount(tenantId, 'members'),
-        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'active' }]),
-        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'expired' }]),
-        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'frozen' }]),
-        getTenantCollectionCount(tenantId, 'members', [{ field: 'gender', operator: '==', value: 'male' }]),
-        getTenantCollectionCount(tenantId, 'members', [{ field: 'gender', operator: '==', value: 'female' }]),
+      // Everything the dashboard needs, in ONE round trip. These four groups do
+      // not depend on each other, but they used to be awaited one after the
+      // other, so opening the dashboard cost five sequential round trips and
+      // felt slow on anything but a fast connection.
+      const todayTs = Timestamp.fromDate(todayStart);
+      const monthTs = Timestamp.fromDate(monthStart);
+
+      const [
+        [totalC, activeC, expiredC, frozenC, maleC, femaleC],
+        [{ data: todayAtt }, todayAttCount],
+        [todaySum, monthSum, { data: latestPayments }],
+        { data: expiringSubs },
+      ] = await Promise.all([
+        // 1) Member stats — count() aggregations. These used to load every member
+        // document (6+ MB at 5k members) just to compute six numbers.
+        Promise.all([
+          getTenantCollectionCount(tenantId, 'members'),
+          getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'active' }]),
+          getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'expired' }]),
+          getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'frozen' }]),
+          getTenantCollectionCount(tenantId, 'members', [{ field: 'gender', operator: '==', value: 'male' }]),
+          getTenantCollectionCount(tenantId, 'members', [{ field: 'gender', operator: '==', value: 'female' }]),
+        ]),
+
+        // 2) Today's attendance — the list shows 10, the count is an aggregation.
+        Promise.all([
+          getTenantDocuments(tenantId, 'attendance',
+            [{ field: 'checkIn', operator: '>=', value: todayTs }],
+            { field: 'checkIn', direction: 'desc' }, 10),
+          getTenantCollectionCount(tenantId, 'attendance',
+            [{ field: 'checkIn', operator: '>=', value: todayTs }]),
+        ]),
+
+        // 3) Revenue — summed on the server over the actual date range. This was
+        // computed in JS from "the most recent 200 payments", so once a month
+        // held more than 200 the month's revenue was silently under-reported.
+        Promise.all([
+          getTenantFieldSum(tenantId, 'payments', 'netAmount',
+            [{ field: 'createdAt', operator: '>=', value: todayTs }]),
+          getTenantFieldSum(tenantId, 'payments', 'netAmount',
+            [{ field: 'createdAt', operator: '>=', value: monthTs }]),
+          getTenantDocuments(tenantId, 'payments', [], { field: 'createdAt', direction: 'desc' }, 5),
+        ]),
+
+        // 4) Expiring subscriptions (next 7 days) — filtered by date range on the
+        // SERVER. Previously this pulled every active subscription (~5k docs) and
+        // threw almost all of them away in JS.
+        getTenantDocuments(tenantId, 'subscriptions', [
+          { field: 'status', operator: '==', value: 'active' },
+          { field: 'endDate', operator: '>=', value: todayTs },
+          { field: 'endDate', operator: '<=', value: Timestamp.fromDate(sevenDaysLater) },
+        ], { field: 'endDate', direction: 'asc' }),
       ]);
+
       const totalCount = totalC.count || 0;
       const activeCount = activeC.count || 0;
       const expiredCount = expiredC.count || 0;
@@ -57,39 +101,12 @@ export default function AdminDashboardPage() {
       const maleCount = maleC.count || 0;
       const femaleCount = femaleC.count || 0;
 
-      // 2) Today's attendance — the list shows 10, and the count comes from a
-      // count() aggregation rather than downloading every row.
-      const [{ data: todayAtt }, todayAttCount] = await Promise.all([
-        getTenantDocuments(tenantId, 'attendance',
-          [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(todayStart) }],
-          { field: 'checkIn', direction: 'desc' }, 10),
-        getTenantCollectionCount(tenantId, 'attendance',
-          [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(todayStart) }]),
-      ]);
       setTodayAttendance(todayAtt || []);
+      setRecentPayments(latestPayments || []);
 
-      // 3) Payments — recent + revenue calculations
-      const { data: allPayments } = await getTenantDocuments(tenantId, 'payments', [],
-        { field: 'createdAt', direction: 'desc' }, 200);
-      const pays = allPayments || [];
-      setRecentPayments(pays.slice(0, 5));
+      const todayRev = todaySum.total || 0;
+      const monthRev = monthSum.total || 0;
 
-      let todayRev = 0, monthRev = 0;
-      pays.forEach(p => {
-        const amount = p.netAmount || p.amount || 0;
-        const date = p.createdAt?.toDate ? p.createdAt.toDate() : null;
-        if (date && date >= todayStart) todayRev += amount;
-        if (date && date >= monthStart) monthRev += amount;
-      });
-
-      // 4) Expiring subscriptions (next 7 days) — filtered by date range on the
-      // SERVER. Previously this pulled every active subscription (~5k docs) and
-      // threw almost all of them away in JS.
-      const { data: expiringSubs } = await getTenantDocuments(tenantId, 'subscriptions', [
-        { field: 'status', operator: '==', value: 'active' },
-        { field: 'endDate', operator: '>=', value: Timestamp.fromDate(todayStart) },
-        { field: 'endDate', operator: '<=', value: Timestamp.fromDate(sevenDaysLater) },
-      ], { field: 'endDate', direction: 'asc' });
       const expiring = expiringSubs || [];
 
       // Resolve names for the handful we actually display, one read each,

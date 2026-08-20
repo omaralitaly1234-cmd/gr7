@@ -16,6 +16,8 @@ import {
   serverTimestamp,
   writeBatch,
   getCountFromServer,
+  getAggregateFromServer,
+  sum,
 } from 'firebase/firestore';
 import { db } from './config';
 import { cached, buildKey, invalidatePath, clearReadCache } from './read-cache';
@@ -190,6 +192,32 @@ export async function getCollectionCount(collectionName, filters = []) {
   );
 }
 
+/**
+ * Sum one numeric field across a filtered query, server-side.
+ *
+ * Firestore returns a single number, so a revenue figure costs one small read
+ * instead of downloading every payment of the period and adding them up in JS —
+ * which also silently under-reported once a period held more rows than the
+ * client-side limit.
+ */
+export async function getFieldSum(collectionName, field, filters = []) {
+  return cached(
+    buildKey(collectionName, filters, null, null, `sum:${field}`),
+    async () => {
+      try {
+        const constraints = filters.map(({ field: f, operator, value }) =>
+          where(f, operator, value)
+        );
+        const q = query(collection(db, collectionName), ...constraints);
+        const snapshot = await getAggregateFromServer(q, { total: sum(field) });
+        return { total: snapshot.data().total || 0, error: null };
+      } catch (error) {
+        return { total: 0, error: error.message };
+      }
+    },
+  );
+}
+
 // Batch write (for bulk operations)
 export async function batchWrite(operations) {
   try {
@@ -269,6 +297,11 @@ export async function deleteTenantDocument(tenantId, collectionName, docId) {
 // Get count from tenant's sub-collection
 export async function getTenantCollectionCount(tenantId, collectionName, filters = []) {
   return getCollectionCount(getTenantPath(tenantId, collectionName), filters);
+}
+
+// Server-side sum of a numeric field in a tenant's sub-collection
+export async function getTenantFieldSum(tenantId, collectionName, field, filters = []) {
+  return getFieldSum(getTenantPath(tenantId, collectionName), field, filters);
 }
 
 /**

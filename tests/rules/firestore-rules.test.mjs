@@ -19,7 +19,7 @@ import {
   assertFails,
   assertSucceeds,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, query, where } from 'firebase/firestore';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TENANT_A = 'tenantA';
@@ -89,7 +89,10 @@ test('owner CANNOT self-grant plan / features / limits / status', async () => {
   await assertFails(updateDoc(doc(ctx('ownerA'), `tenants/${TENANT_A}`), { 'subscription.plan': 'annual' }));
   await assertFails(updateDoc(doc(ctx('ownerA'), `tenants/${TENANT_A}`), { features: { ai_nutrition: true } }));
   await assertFails(updateDoc(doc(ctx('ownerA'), `tenants/${TENANT_A}`), { limits: { maxMembers: -1 } }));
-  await assertFails(updateDoc(doc(ctx('ownerA'), `tenants/${TENANT_A}`), { status: 'active' }));
+  // Must be a value that actually differs from the seed: writing status back as
+  // 'active' produces an empty diff(), and hasOnly() on an empty key set is
+  // true, so the rule (correctly) lets a write that changes nothing through.
+  await assertFails(updateDoc(doc(ctx('ownerA'), `tenants/${TENANT_A}`), { status: 'suspended' }));
 });
 
 test('non-owner admin cannot update the tenant doc', async () => {
@@ -100,8 +103,89 @@ test('non-owner admin cannot update the tenant doc', async () => {
 test('admin can write members; member cannot; cross-tenant cannot read', async () => {
   await assertSucceeds(setDoc(doc(ctx('adminA'), `tenants/${TENANT_A}/members/m2`), { fullName: { ar: 'y' }, status: 'active' }));
   await assertFails(setDoc(doc(ctx('memberA'), `tenants/${TENANT_A}/members/m3`), { fullName: { ar: 'z' } }));
-  await assertSucceeds(getDoc(doc(ctx('memberA'), `tenants/${TENANT_A}/members/m1`)));
   await assertFails(getDoc(doc(ctx('memberB'), `tenants/${TENANT_A}/members/m1`)));
+});
+
+// ---------- members: per-record read isolation ----------
+// A member doc carries the national ID, medical notes and (for imported
+// members) a plaintext password, so "any member of the tenant" is not an
+// acceptable read scope. These tests pin the three legitimate readers and,
+// just as importantly, the list queries the app actually issues.
+async function seedMembers() {
+  await testEnv.withSecurityRulesDisabled(async (c) => {
+    const db = c.firestore();
+    // memberA's own record, linked by `uid`
+    await setDoc(doc(db, `tenants/${TENANT_A}/members/mine`), {
+      uid: 'memberA', fullName: { ar: 'me' }, accountPassword: 'secret', assignedTrainer: 'trainerA',
+    });
+    // an older record linked by the legacy `userId` field instead
+    await setDoc(doc(db, `tenants/${TENANT_A}/members/mineLegacy`), {
+      userId: 'memberA', fullName: { ar: 'me-legacy' },
+    });
+    // somebody else's record, assigned to trainerA
+    await setDoc(doc(db, `tenants/${TENANT_A}/members/other`), {
+      uid: 'someoneElse', fullName: { ar: 'other' }, accountPassword: 'secret2', assignedTrainer: 'trainerA',
+    });
+    // somebody else's record, assigned to nobody
+    await setDoc(doc(db, `tenants/${TENANT_A}/members/unassigned`), {
+      uid: 'someoneElse2', fullName: { ar: 'unassigned' }, accountPassword: 'secret3',
+    });
+  });
+}
+
+test('member can read ONLY their own record', async () => {
+  await seedMembers();
+  await assertSucceeds(getDoc(doc(ctx('memberA'), `tenants/${TENANT_A}/members/mine`)));
+  await assertSucceeds(getDoc(doc(ctx('memberA'), `tenants/${TENANT_A}/members/mineLegacy`)));
+  await assertFails(getDoc(doc(ctx('memberA'), `tenants/${TENANT_A}/members/other`)));
+  await assertFails(getDoc(doc(ctx('memberA'), `tenants/${TENANT_A}/members/unassigned`)));
+});
+
+test('member cannot list the members collection', async () => {
+  await seedMembers();
+  await assertFails(getDocs(collection(ctx('memberA'), `tenants/${TENANT_A}/members`)));
+});
+
+test('the client pages own-record queries still work', async () => {
+  await seedMembers();
+  const db = ctx('memberA');
+  // client/subscription: where('uid','==',user.uid), then the userId fallback
+  await assertSucceeds(getDocs(query(collection(db, `tenants/${TENANT_A}/members`), where('uid', '==', 'memberA'))));
+  // client/dashboard: where('userId','==',user.uid)
+  await assertSucceeds(getDocs(query(collection(db, `tenants/${TENANT_A}/members`), where('userId', '==', 'memberA'))));
+  // ...but not by asking for someone else's
+  await assertFails(getDocs(query(collection(db, `tenants/${TENANT_A}/members`), where('uid', '==', 'someoneElse'))));
+});
+
+test('trainer reads only assigned clients, and their assigned-clients query works', async () => {
+  await seedMembers();
+  const db = ctx('trainerA');
+  await assertSucceeds(getDoc(doc(db, `tenants/${TENANT_A}/members/other`)));       // assigned
+  await assertFails(getDoc(doc(db, `tenants/${TENANT_A}/members/unassigned`)));     // not assigned
+  // every trainer page queries members with this exact where-clause
+  await assertSucceeds(getDocs(query(collection(db, `tenants/${TENANT_A}/members`), where('assignedTrainer', '==', 'trainerA'))));
+  await assertFails(getDocs(collection(db, `tenants/${TENANT_A}/members`)));
+});
+
+test('admin and owner still read every member, including unfiltered lists', async () => {
+  await seedMembers();
+  for (const uid of ['adminA', 'ownerA', 'superadmin']) {
+    await assertSucceeds(getDoc(doc(ctx(uid), `tenants/${TENANT_A}/members/unassigned`)));
+    await assertSucceeds(getDocs(collection(ctx(uid), `tenants/${TENANT_A}/members`)));
+  }
+});
+
+test('the catch-all subcollection rule does not re-open members', async () => {
+  await seedMembers();
+  // Regression guard: `match /{subcollection}/{docId}` also matches `members`,
+  // and Firestore ORs every matching allow — without the exclusion this read
+  // succeeds and the rule above is decorative.
+  await assertFails(getDoc(doc(ctx('memberA'), `tenants/${TENANT_A}/members/unassigned`)));
+  // other collections still fall through to the catch-all as before
+  await testEnv.withSecurityRulesDisabled(async (c) => {
+    await setDoc(doc(c.firestore(), `tenants/${TENANT_A}/classes/c1`), { name: 'yoga' });
+  });
+  await assertSucceeds(getDoc(doc(ctx('memberA'), `tenants/${TENANT_A}/classes/c1`)));
 });
 
 // ---------- trainer-managed collections ----------

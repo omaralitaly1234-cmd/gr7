@@ -130,10 +130,26 @@ service cloud.firestore {
       // ===== Tenant Sub-Collections =====
       
       // Members sub-collection
+      // A member document holds the national ID, medical notes, address and —
+      // for the bulk-imported members — a plaintext login password. It used to
+      // be readable by ANY signed-in member of the tenant, which meant one
+      // member could read every other member's credentials. Read access is now:
+      //   owner/admin  -> every member
+      //   trainer      -> only the clients assigned to them
+      //   member       -> only their own record
+      // The queries the app issues already carry the matching where-clause, so
+      // each of these is a valid list query (see tests/rules).
       match /members/{docId} {
-        allow read: if isSuperAdmin() || 
-          (belongsToTenant(tenantId) && isTenantActive(tenantId));
-        allow create, update: if isSuperAdmin() || 
+        allow read: if isSuperAdmin() ||
+          (isAuthenticated() && isTenantActive(tenantId) && (
+            isTenantAdmin(tenantId) ||
+            (isTenantTrainer(tenantId) && resource.data.get('assignedTrainer', '') == request.auth.uid) ||
+            (belongsToTenant(tenantId) && (
+              resource.data.get('uid', '') == request.auth.uid ||
+              resource.data.get('userId', '') == request.auth.uid
+            ))
+          ));
+        allow create, update: if isSuperAdmin() ||
           (isTenantAdmin(tenantId) && isTenantActive(tenantId));
         allow delete: if isSuperAdmin() || 
           (isTenantOwner(tenantId) && isTenantActive(tenantId));
@@ -292,9 +308,13 @@ service cloud.firestore {
 
       // Generic catch-all for other tenant sub-collections
       // (classes, offers, ratings, schedules, trainers, employees, etc.)
+      //
+      // NOTE: this wildcard also matches paths that have their own rule above,
+      // and Firestore ORs every matching allow — so `members` must be excluded
+      // here or its tighter read rule is silently undone by this one.
       match /{subcollection}/{docId} {
-        allow read: if isSuperAdmin() || 
-          (belongsToTenant(tenantId) && isTenantActive(tenantId));
+        allow read: if isSuperAdmin() ||
+          (subcollection != 'members' && belongsToTenant(tenantId) && isTenantActive(tenantId));
         allow create, update: if isSuperAdmin() || 
           (isTenantAdmin(tenantId) && isTenantActive(tenantId));
         allow delete: if isSuperAdmin() || 

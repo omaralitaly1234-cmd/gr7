@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import ScannedMemberPanel from '@/components/ScannedMemberPanel';
 import { Timestamp, doc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 
@@ -22,6 +23,10 @@ export default function AttendanceScannerPage() {
   const [todayCount, setTodayCount] = useState(0);
   const [recentScans, setRecentScans] = useState([]);
   const [scanning, setScanning] = useState(false);
+  // Full profile shown beside the scanner for the member just scanned.
+  const [memberHistory, setMemberHistory] = useState([]);
+  const [memberSub, setMemberSub] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const scannerRef = useRef(null);
   const html5QrCode = useRef(null);
 
@@ -56,6 +61,8 @@ export default function AttendanceScannerPage() {
           setScanResult(isAr ? 'لا يوجد عضو بهذا الرمز' : 'No member found with this code');
           setResultType('error');
           setMemberData(null);
+          setMemberHistory([]);
+          setMemberSub(null);
           return;
         }
         return processCheckIn(membersQR[0]);
@@ -69,8 +76,35 @@ export default function AttendanceScannerPage() {
     }
   }, [tenantId, isAr]);
 
+  // The desk needs the member's history and subscription regardless of whether
+  // the check-in itself succeeds — an expired or already-checked-in member is
+  // exactly when the staff needs to look at the record.
+  const loadMemberContext = useCallback(async (memberId) => {
+    setHistoryLoading(true);
+    setMemberHistory([]);
+    setMemberSub(null);
+    try {
+      const [attRes, subRes] = await Promise.all([
+        getTenantDocuments(tenantId, 'attendance',
+          [{ field: 'memberId', operator: '==', value: memberId }],
+          { field: 'checkIn', direction: 'desc' }, 60),
+        getTenantDocuments(tenantId, 'subscriptions',
+          [{ field: 'memberId', operator: '==', value: memberId }],
+          { field: 'createdAt', direction: 'desc' }, 1),
+      ]);
+      if (attRes.error) console.error('[Scanner] attendance history:', attRes.error);
+      if (subRes.error) console.error('[Scanner] subscription:', subRes.error);
+      setMemberHistory(attRes.data || []);
+      setMemberSub(subRes.data?.[0] || null);
+    } catch (err) {
+      console.error('[Scanner] member context:', err);
+    }
+    setHistoryLoading(false);
+  }, [tenantId]);
+
   const processCheckIn = async (member) => {
     setMemberData(member);
+    loadMemberContext(member.id);
 
     // Check subscription status
     if (member.status === 'expired') {
@@ -162,11 +196,22 @@ export default function AttendanceScannerPage() {
     setResultType('success');
     setTodayCount(prev => prev + 1);
 
-    // Auto-reset after 4 seconds
+    // The history query was issued before this check-in existed — fold today's
+    // visit in rather than paying for a second read.
+    const nowTs = Timestamp.fromDate(new Date());
+    setMemberHistory(prev => (
+      prev.some(a => a.id === `${member.id}_${dateStr}`)
+        ? prev
+        : [{ id: `${member.id}_${dateStr}`, memberId: member.id, checkIn: nowTs }, ...prev]
+    ));
+    setMemberData(prev => (prev ? { ...prev, totalVisits: (prev.totalVisits || 0) + 1, lastVisit: nowTs } : prev));
+
+    // Clear the banner after 4 seconds, but keep the member card up — the desk
+    // reads it while the member is still standing there. The next scan (or the
+    // card's ✕) replaces it.
     setTimeout(() => {
       setScanResult(null);
       setResultType(null);
-      setMemberData(null);
     }, 4000);
   };
 
@@ -292,41 +337,24 @@ export default function AttendanceScannerPage() {
                   {scanResult}
                 </h2>
                 {memberData && (
-                  <div style={{ marginTop: 'var(--space-4)' }}>
-                    <div style={{
-                      width: 80, height: 80, borderRadius: 'var(--radius-full)',
-                      background: 'var(--pt-gold-glow)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '2rem', fontWeight: 900, color: 'var(--pt-gold)', margin: '0 auto var(--space-3)',
-                      border: `3px solid ${resultColors[resultType]?.border}`,
-                    }}>
-                      {(memberData.fullName?.[locale] || memberData.fullName?.ar || '?').charAt(0)}
-                    </div>
-                    <h3 style={{ marginBottom: 'var(--space-1)' }}>
-                      {memberData.fullName?.[locale] || memberData.fullName?.ar}
-                    </h3>
-                    <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)' }}>
-                      🎫 {memberData.membershipNumber} • {memberData.planName || memberData.currentPlan?.planName}
-                    </p>
-                    <p style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-1)' }}>
-                      {memberData.gender === 'male' ? '♂️' : '♀️'} {t(`common.${memberData.gender}`)} •
-                      📊 {memberData.totalVisits || 0} {isAr ? 'زيارة' : 'visits'}
-                    </p>
-                    {/* Outstanding balance is informational only — check-in is
-                        never blocked by it, the front desk just needs to see it. */}
-                    {memberData.balanceDue > 0 && (
-                      <div style={{
-                        marginTop: 'var(--space-3)', padding: '10px 14px',
-                        background: 'rgba(255,145,0,0.12)', border: '1px solid var(--pt-warning)',
-                        borderRadius: 'var(--radius-sm)', color: 'var(--pt-warning)',
-                        fontWeight: 800, fontSize: 'var(--font-size-sm)',
-                      }}>
-                        💰 {isAr ? 'متبقي عليه' : 'Owes'}: {memberData.balanceDue.toLocaleString()} {t('common.egp')}
-                      </div>
-                    )}
-                  </div>
+                  <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)' }}>
+                    {memberData.fullName?.[locale] || memberData.fullName?.ar} • 🎫 {memberData.membershipNumber}
+                  </p>
                 )}
               </div>
             </div>
+          )}
+
+          {/* Full record for the member just scanned */}
+          {memberData && (
+            <ScannedMemberPanel
+              member={memberData}
+              history={memberHistory}
+              historyLoading={historyLoading}
+              subscription={memberSub}
+              locale={locale}
+              onClose={() => { setMemberData(null); setMemberHistory([]); setMemberSub(null); }}
+            />
           )}
 
           {/* Recent Scans */}

@@ -32,3 +32,33 @@ export function computeFreeze({ endDateMs, freezeDaysUsed = 0, maxFreezeDays = 0
     newFreezeDaysUsed: used + n,
   };
 }
+
+/**
+ * Compute the dates for a renewal.
+ *
+ * Renewing while the current term still has days left must NOT throw those days
+ * away — the new term starts the moment the old one runs out. Renewing after
+ * expiry starts from today.
+ *
+ * @param {{ currentEndDateMs?: number|null, durationDays: number, nowMs?: number }} input
+ * @returns {{ ok: boolean, error?: 'invalid_duration',
+ *             startMs?: number, endMs?: number, carriedOverDays?: number }}
+ */
+export function computeRenewal({ currentEndDateMs = null, durationDays, nowMs = Date.now() }) {
+  const duration = Math.floor(Number(durationDays));
+  if (!Number.isFinite(duration) || duration < 1) {
+    return { ok: false, error: 'invalid_duration' };
+  }
+
+  const now = Number(nowMs);
+  const currentEnd = Number(currentEndDateMs);
+  const hasRemaining = Number.isFinite(currentEnd) && currentEnd > now;
+  const startMs = hasRemaining ? currentEnd : now;
+
+  return {
+    ok: true,
+    startMs,
+    endMs: startMs + duration * 86400000,
+    carriedOverDays: hasRemaining ? Math.ceil((currentEnd - now) / 86400000) : 0,
+  };
+}

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { getTenantDocuments, updateTenantDocument, getTenantDocumentsByIds, getTenantCollectionCount } from '@/lib/firebase/firestore';
 import { computeFreeze } from '@/lib/subscription-math';
 import { useTenant } from '@/context/TenantContext';
+import RenewSubscriptionModal from '@/components/RenewSubscriptionModal';
 import { Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
@@ -26,6 +27,7 @@ export default function SubscriptionsPage() {
   const [showFreezeModal, setShowFreezeModal] = useState(null);
   const [freezeReason, setFreezeReason] = useState('travel');
   const [freezeDays, setFreezeDays] = useState(7);
+  const [renewSub, setRenewSub] = useState(null);
 
   const PAGE_SIZE = 50;
 
@@ -264,8 +266,8 @@ export default function SubscriptionsPage() {
                         {sub.status === 'frozen' && (
                           <button className="btn btn-ghost btn-sm" onClick={() => handleUnfreeze(sub)} title={t('subscriptions.unfreeze')} style={{ color: 'var(--pt-success)' }}>🔓</button>
                         )}
-                        {sub.status === 'expired' && (
-                          <Link href={`/${locale}/admin/members/new?renew=${sub.memberId}`} className="btn btn-ghost btn-sm" title={t('subscriptions.renew')} style={{ color: 'var(--pt-gold)' }}>🔄</Link>
+                        {(sub.status === 'expired' || sub.status === 'active') && (
+                          <button className="btn btn-ghost btn-sm" onClick={() => setRenewSub(sub)} title={t('subscriptions.renew')} style={{ color: 'var(--pt-gold)' }}>🔄</button>
                         )}
                         <Link href={`/${locale}/admin/members/${sub.memberId}`} className="btn btn-ghost btn-sm" title={t('common.details')}>👁️</Link>
                       </div>
@@ -320,6 +322,18 @@ export default function SubscriptionsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Renew Modal */}
+      {renewSub && (
+        <RenewSubscriptionModal
+          tenantId={tenantId}
+          locale={locale}
+          member={membersById.get(renewSub.memberId) || { id: renewSub.memberId }}
+          currentSub={renewSub}
+          onClose={() => setRenewSub(null)}
+          onRenewed={loadData}
+        />
       )}
     </div>
   );

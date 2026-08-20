@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { getTenantDocument, getTenantDocuments, updateTenantDocument, addTenantDocument } from '@/lib/firebase/firestore';
@@ -8,6 +8,7 @@ import { computeFreeze } from '@/lib/subscription-math';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { authPost } from '@/lib/authenticated-fetch';
+import RenewSubscriptionModal from '@/components/RenewSubscriptionModal';
 import { Timestamp } from 'firebase/firestore';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -41,38 +42,39 @@ export default function MemberProfilePage() {
   // 0 = closed, 1 = first warning, 2 = final "forever" confirmation
   const [deleteStep, setDeleteStep] = useState(0);
   const [deleting, setDeleting] = useState(false);
+  const [showRenewModal, setShowRenewModal] = useState(false);
 
   const canDelete = tenantRole === 'owner' || isSuperAdmin;
 
-  useEffect(() => {
-    async function loadMember() {
-      if (!tenantId || !memberId) { setLoading(false); return; }
-      try {
-        const { data } = await getTenantDocument(tenantId, 'members', memberId);
-        setMember(data);
+  // Hoisted out of the effect so a renewal can refresh the page in place.
+  const loadMember = useCallback(async () => {
+    if (!tenantId || !memberId) { setLoading(false); return; }
+    try {
+      const { data } = await getTenantDocument(tenantId, 'members', memberId);
+      setMember(data);
 
-        const { data: subs } = await getTenantDocuments(tenantId, 'subscriptions',
-          [{ field: 'memberId', operator: '==', value: memberId }],
-          { field: 'createdAt', direction: 'desc' });
-        setSubscriptions(subs || []);
+      const { data: subs } = await getTenantDocuments(tenantId, 'subscriptions',
+        [{ field: 'memberId', operator: '==', value: memberId }],
+        { field: 'createdAt', direction: 'desc' });
+      setSubscriptions(subs || []);
 
-        const { data: pays } = await getTenantDocuments(tenantId, 'payments',
-          [{ field: 'memberId', operator: '==', value: memberId }],
-          { field: 'createdAt', direction: 'desc' });
-        setPayments(pays || []);
+      const { data: pays } = await getTenantDocuments(tenantId, 'payments',
+        [{ field: 'memberId', operator: '==', value: memberId }],
+        { field: 'createdAt', direction: 'desc' });
+      setPayments(pays || []);
 
-        const { data: att } = await getTenantDocuments(tenantId, 'attendance',
-          [{ field: 'memberId', operator: '==', value: memberId }],
-          { field: 'checkIn', direction: 'desc' }, 20);
-        setAttendance(att || []);
+      const { data: att } = await getTenantDocuments(tenantId, 'attendance',
+        [{ field: 'memberId', operator: '==', value: memberId }],
+        { field: 'checkIn', direction: 'desc' }, 20);
+      setAttendance(att || []);
 
-        const { data: trainersList } = await getTenantDocuments(tenantId, 'trainers');
-        setTrainers((trainersList || []).filter(tr => tr.status === 'active' || !tr.status));
-      } catch (err) { console.error(err); }
-      setLoading(false);
-    }
-    loadMember();
+      const { data: trainersList } = await getTenantDocuments(tenantId, 'trainers');
+      setTrainers((trainersList || []).filter(tr => tr.status === 'active' || !tr.status));
+    } catch (err) { console.error(err); }
+    setLoading(false);
   }, [tenantId, memberId]);
+
+  useEffect(() => { loadMember(); }, [loadMember]);
 
   // Freeze model: extend the end date UP-FRONT by the requested number of days
   // (consistent with the member self-service freeze). Enforces maxFreezeDays.
@@ -319,9 +321,9 @@ export default function MemberProfilePage() {
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-5)', flexWrap: 'wrap', borderTop: '1px solid var(--glass-border)', paddingTop: 'var(--space-4)' }}>
-          <Link href={`/${locale}/admin/subscriptions?member=${memberId}`} className="btn btn-primary btn-sm">
+          <button className="btn btn-primary btn-sm" onClick={() => setShowRenewModal(true)}>
             💳 {t('subscriptions.renew')}
-          </Link>
+          </button>
           {member.status === 'active' && (
             <button className="btn btn-outline btn-sm" onClick={() => setShowFreezeModal(true)}>
               ❄️ {t('subscriptions.freeze')}
@@ -652,6 +654,18 @@ export default function MemberProfilePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Renew Modal */}
+      {showRenewModal && (
+        <RenewSubscriptionModal
+          tenantId={tenantId}
+          locale={locale}
+          member={{ ...member, id: memberId }}
+          currentSub={activeSub || null}
+          onClose={() => setShowRenewModal(false)}
+          onRenewed={loadMember}
+        />
       )}
 
       {/* Delete — step 1: warning */}

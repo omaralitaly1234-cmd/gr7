@@ -30,6 +30,27 @@ export default function AdminDashboardPage() {
     loadDashboardData();
   }, [tenantId]);
 
+  /**
+   * Revenue collected since `sinceTs`.
+   *
+   * Prefers the server-side sum() — one number, no rows transferred, no cap.
+   * That aggregation needs its own composite index (createdAt + netAmount);
+   * while such an index is building, or on a database where it was never
+   * deployed, the aggregation errors. Falling back to adding the rows up keeps
+   * the figure roughly right instead of quietly displaying zero, which is the
+   * kind of silent wrong number nobody notices.
+   */
+  const revenueSince = async (sinceTs) => {
+    const filter = [{ field: 'createdAt', operator: '>=', value: sinceTs }];
+    const agg = await getTenantFieldSum(tenantId, 'payments', 'netAmount', filter);
+    if (!agg.error) return agg.total || 0;
+
+    console.warn('[Dashboard] revenue sum() unavailable, summing rows instead:', agg.error);
+    const { data } = await getTenantDocuments(tenantId, 'payments', filter,
+      { field: 'createdAt', direction: 'desc' }, 1000);
+    return (data || []).reduce((s, p) => s + (Number(p.netAmount ?? p.amount) || 0), 0);
+  };
+
   const loadDashboardData = async () => {
     if (!tenantId) { setLoading(false); return; }
 
@@ -50,7 +71,7 @@ export default function AdminDashboardPage() {
       const [
         [totalC, activeC, expiredC, frozenC, maleC, femaleC],
         [{ data: todayAtt }, todayAttCount],
-        [todaySum, monthSum, { data: latestPayments }],
+        [todayRev, monthRev, { data: latestPayments }],
         { data: expiringSubs },
       ] = await Promise.all([
         // 1) Member stats — count() aggregations. These used to load every member
@@ -77,10 +98,8 @@ export default function AdminDashboardPage() {
         // computed in JS from "the most recent 200 payments", so once a month
         // held more than 200 the month's revenue was silently under-reported.
         Promise.all([
-          getTenantFieldSum(tenantId, 'payments', 'netAmount',
-            [{ field: 'createdAt', operator: '>=', value: todayTs }]),
-          getTenantFieldSum(tenantId, 'payments', 'netAmount',
-            [{ field: 'createdAt', operator: '>=', value: monthTs }]),
+          revenueSince(todayTs),
+          revenueSince(monthTs),
           getTenantDocuments(tenantId, 'payments', [], { field: 'createdAt', direction: 'desc' }, 5),
         ]),
 
@@ -103,9 +122,6 @@ export default function AdminDashboardPage() {
 
       setTodayAttendance(todayAtt || []);
       setRecentPayments(latestPayments || []);
-
-      const todayRev = todaySum.total || 0;
-      const monthRev = monthSum.total || 0;
 
       const expiring = expiringSubs || [];
 

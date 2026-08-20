@@ -177,6 +177,15 @@
         { "fieldPath": "memberId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "comment": "Dashboard revenue: sum(netAmount) over a createdAt range. A sum() aggregation needs the summed field in the index too — a plain range index on createdAt is not enough, and without this the aggregation fails and revenue silently reads 0.",
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "createdAt", "order": "ASCENDING" },
+        { "fieldPath": "netAmount", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

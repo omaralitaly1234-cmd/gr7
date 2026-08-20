@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { useAuth } from '@/lib/hooks/useAuth';
 import ScannedMemberPanel from '@/components/ScannedMemberPanel';
 import { Timestamp, doc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
@@ -15,6 +16,7 @@ export default function AttendanceScannerPage() {
   const locale = params?.locale || 'ar';
   const isAr = locale === 'ar';
   const { tenantId } = useTenant();
+  const { tenantRole, isSuperAdmin } = useAuth();
 
   const [scanResult, setScanResult] = useState(null);
   const [resultType, setResultType] = useState(null); // success, error, expired, frozen
@@ -353,6 +355,7 @@ export default function AttendanceScannerPage() {
               historyLoading={historyLoading}
               subscription={memberSub}
               locale={locale}
+              canSeeCredentials={tenantRole === 'owner' || isSuperAdmin}
               onClose={() => { setMemberData(null); setMemberHistory([]); setMemberSub(null); }}
             />
           )}

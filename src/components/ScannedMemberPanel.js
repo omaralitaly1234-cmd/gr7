@@ -9,7 +9,7 @@
 // banner used to show.
 // ============================================
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { toDate } from '@/lib/format';
@@ -43,10 +43,12 @@ export default function ScannedMemberPanel({
   historyLoading = false,
   subscription = null, // the member's newest subscription, or null
   locale = 'ar',
+  canSeeCredentials = false,
   onClose,
 }) {
   const t = useTranslations();
   const isAr = locale === 'ar';
+  const [showPassword, setShowPassword] = useState(false);
 
   const fmtDate = (v, opts) => {
     const d = toDate(v);
@@ -188,7 +190,35 @@ export default function ScannedMemberPanel({
         <Row label={isAr ? 'رقم العضوية' : 'Membership no.'} value={member.membershipNumber} dir="ltr" />
         <Row label={isAr ? 'الهاتف' : 'Phone'} value={member.phone} dir="ltr" />
         <Row label={isAr ? 'واتساب' : 'WhatsApp'} value={member.whatsapp && member.whatsapp !== member.phone ? member.whatsapp : null} dir="ltr" />
-        <Row label={isAr ? 'البريد' : 'Email'} value={member.email} dir="ltr" />
+        <Row label={isAr ? 'البريد' : 'Email'} value={member.accountEmail || member.email} dir="ltr" />
+        {/* Login password, for members whose credentials were imported with one.
+            Hidden behind a toggle so it is never sitting on a screen the member
+            (or the person behind them in the queue) is looking at. */}
+        {canSeeCredentials && member.accountPassword && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--space-3)', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
+            <span style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)', whiteSpace: 'nowrap' }}>
+              {isAr ? 'كلمة السر' : 'Password'}
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <code dir="ltr" style={{
+                fontSize: 'var(--font-size-sm)', fontWeight: 700, letterSpacing: showPassword ? 0 : 2,
+                color: showPassword ? 'var(--pt-gold)' : 'var(--pt-gray-500)',
+                background: 'var(--pt-darker)', padding: '2px 8px', borderRadius: 4,
+              }}>
+                {showPassword ? member.accountPassword : '••••••••'}
+              </code>
+              <button onClick={() => setShowPassword(v => !v)} title={showPassword ? (isAr ? 'إخفاء' : 'Hide') : (isAr ? 'إظهار' : 'Show')}>
+                {showPassword ? '🙈' : '👁️'}
+              </button>
+              {showPassword && (
+                <button
+                  onClick={() => navigator.clipboard?.writeText(member.accountPassword)}
+                  title={isAr ? 'نسخ' : 'Copy'}
+                >📋</button>
+              )}
+            </span>
+          </div>
+        )}
         <Row label={isAr ? 'الجنس' : 'Gender'} value={member.gender ? t(`common.${member.gender}`) : null} />
         <Row label={isAr ? 'تاريخ الميلاد' : 'Date of birth'} value={member.dateOfBirth ? `${fmtDate(member.dateOfBirth)}${age ? ` (${age} ${isAr ? 'سنة' : 'yrs'})` : ''}` : null} />
         <Row label={isAr ? 'الرقم القومي' : 'National ID'} value={member.nationalId} dir="ltr" />

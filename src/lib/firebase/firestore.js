@@ -18,6 +18,9 @@ import {
   getCountFromServer,
 } from 'firebase/firestore';
 import { db } from './config';
+import { cached, buildKey, invalidatePath, clearReadCache } from './read-cache';
+
+export { clearReadCache };
 
 // ==================== CRUD Helpers ====================
 
@@ -35,8 +38,21 @@ export async function getDocument(collectionName, docId) {
   }
 }
 
-// Get all documents from a collection with optional filters
+// Get all documents from a collection with optional filters.
+// Reads go through the short-lived cache in ./read-cache, so returning to a page
+// you just left does not re-run the same query over the network.
 export async function getDocuments(collectionName, filters = [], sortBy = null, limitCount = null) {
+  const res = await cached(
+    buildKey(collectionName, filters, sortBy, limitCount),
+    () => fetchDocuments(collectionName, filters, sortBy, limitCount),
+  );
+  // Every caller gets its own array. Several call sites sort the result in
+  // place (client/messages, trainer/messages, getTrainerClients), which would
+  // otherwise reorder the copy every other page is sharing.
+  return res?.data ? { ...res, data: res.data.slice() } : res;
+}
+
+async function fetchDocuments(collectionName, filters = [], sortBy = null, limitCount = null) {
   try {
     let q = collection(db, collectionName);
     const constraints = [];
@@ -108,6 +124,7 @@ export async function addDocument(collectionName, data) {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    invalidatePath(collectionName);
     return { id: docRef.id, error: null };
   } catch (error) {
     console.error(`[Firestore] addDocument(${collectionName}) failed:`, error.code, error.message);
@@ -122,6 +139,7 @@ export async function setDocument(collectionName, docId, data, merge = true) {
       ...data,
       updatedAt: serverTimestamp(),
     }, { merge });
+    invalidatePath(collectionName);
     return { error: null };
   } catch (error) {
     return { error: error.message };
@@ -135,6 +153,7 @@ export async function updateDocument(collectionName, docId, data) {
       ...data,
       updatedAt: serverTimestamp(),
     });
+    invalidatePath(collectionName);
     return { error: null };
   } catch (error) {
     return { error: error.message };
@@ -145,6 +164,7 @@ export async function updateDocument(collectionName, docId, data) {
 export async function deleteDocument(collectionName, docId) {
   try {
     await deleteDoc(doc(db, collectionName, docId));
+    invalidatePath(collectionName);
     return { error: null };
   } catch (error) {
     return { error: error.message };
@@ -153,16 +173,21 @@ export async function deleteDocument(collectionName, docId) {
 
 // Get documents count
 export async function getCollectionCount(collectionName, filters = []) {
-  try {
-    const constraints = filters.map(({ field, operator, value }) =>
-      where(field, operator, value)
-    );
-    const q = query(collection(db, collectionName), ...constraints);
-    const snapshot = await getCountFromServer(q);
-    return { count: snapshot.data().count, error: null };
-  } catch (error) {
-    return { count: 0, error: error.message };
-  }
+  return cached(
+    buildKey(collectionName, filters, null, null, 'count'),
+    async () => {
+      try {
+        const constraints = filters.map(({ field, operator, value }) =>
+          where(field, operator, value)
+        );
+        const q = query(collection(db, collectionName), ...constraints);
+        const snapshot = await getCountFromServer(q);
+        return { count: snapshot.data().count, error: null };
+      } catch (error) {
+        return { count: 0, error: error.message };
+      }
+    },
+  );
 }
 
 // Batch write (for bulk operations)
@@ -184,6 +209,7 @@ export async function batchWrite(operations) {
       }
     });
     await batch.commit();
+    [...new Set(operations.map(o => o.collectionName))].forEach(invalidatePath);
     return { error: null };
   } catch (error) {
     return { error: error.message };

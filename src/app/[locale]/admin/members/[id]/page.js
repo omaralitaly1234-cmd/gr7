@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
-import { getTenantDocument, getTenantDocuments, updateTenantDocument, addTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocument, getTenantDocuments, updateTenantDocument, addTenantDocument, clearReadCache } from '@/lib/firebase/firestore';
 import { computeFreeze } from '@/lib/subscription-math';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -256,6 +256,9 @@ export default function MemberProfilePage() {
       if (data.warnings?.length) {
         toast(isAr ? 'تم حذف العضو، لكن تعذّر حذف حساب الدخول بالكامل' : 'Member deleted, but the login account was not fully removed');
       }
+      // The delete ran server-side with the Admin SDK, so the client read cache
+      // still holds lists containing this member.
+      clearReadCache();
       toast.success(isAr ? 'تم حذف العضو نهائياً' : 'Member permanently deleted');
       setDeleteStep(0);
       router.replace(`/${locale}/admin/members`);

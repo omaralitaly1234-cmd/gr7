@@ -45,8 +45,13 @@ const nextConfig = {
             value: '1; mode=block',
           },
           {
+            // The QR check-in scanner calls getUserMedia, so the camera has to
+            // be allowed for our own origin — `camera=()` allows nobody at all,
+            // including us, and silently kills the scanner. Embedded third
+            // parties still get nothing, and mic/geolocation stay fully off
+            // since nothing in the app uses them.
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=()',
+            value: 'camera=(self), microphone=(), geolocation=()',
           },
           {
             key: 'Strict-Transport-Security',

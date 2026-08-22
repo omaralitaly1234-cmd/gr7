@@ -7,6 +7,7 @@ import { getTenantDocuments, getTenantCollectionCount } from '@/lib/firebase/fir
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import ScannedMemberPanel from '@/components/ScannedMemberPanel';
+import { findMemberByCode } from '@/lib/firebase/member-codes';
 import { Timestamp, doc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 
@@ -29,6 +30,10 @@ export default function AttendanceScannerPage() {
   const [memberHistory, setMemberHistory] = useState([]);
   const [memberSub, setMemberSub] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Check-in by name, for members who do not know their code.
+  const [nameQuery, setNameQuery] = useState('');
+  const [nameResults, setNameResults] = useState([]);
+  const [nameSearching, setNameSearching] = useState(false);
   const scannerRef = useRef(null);
   const html5QrCode = useRef(null);
 
@@ -56,33 +61,45 @@ export default function AttendanceScannerPage() {
     if (!tenantId || !qrData) return;
 
     try {
-      // Find member by QR code or membership number
-      const { data: members } = await getTenantDocuments(tenantId, 'members',
-        [{ field: 'membershipNumber', operator: '==', value: qrData.trim() }]);
-
-      if (!members || members.length === 0) {
-        // Try by qrCode field
-        const { data: membersQR } = await getTenantDocuments(tenantId, 'members',
-          [{ field: 'qrCode', operator: '==', value: qrData.trim() }]);
-        
-        if (!membersQR || membersQR.length === 0) {
-          setScanResult(isAr ? 'لا يوجد عضو بهذا الرمز' : 'No member found with this code');
-          setResultType('error');
-          setMemberData(null);
-          setMemberHistory([]);
-          setMemberSub(null);
-          return;
-        }
-        return processCheckIn(membersQR[0]);
+      // Matches membershipNumber and qrCode, raw and normalised, so a code
+      // typed in a different case still opens the door.
+      const member = await findMemberByCode(tenantId, qrData);
+      if (!member) {
+        setScanResult(isAr ? 'لا يوجد عضو بهذا الرمز' : 'No member found with this code');
+        setResultType('error');
+        setMemberData(null);
+        setMemberHistory([]);
+        setMemberSub(null);
+        return;
       }
-      
-      return processCheckIn(members[0]);
+      return processCheckIn(member);
     } catch (err) {
       console.error('Scan error:', err);
       setScanResult(isAr ? 'خطأ في المسح' : 'Scan error');
       setResultType('error');
     }
   }, [tenantId, isAr]);
+
+  // Check in by name, for the members who turn up knowing neither their code
+  // nor their phone number. Prefix search on the Arabic name — Firestore has no
+  // substring search, so this matches from the start of the name.
+  const runNameSearch = useCallback(async (raw) => {
+    const term = raw.trim();
+    if (!tenantId || term.length < 2) { setNameResults([]); return; }
+    setNameSearching(true);
+    try {
+      const { data, error } = await getTenantDocuments(tenantId, 'members', [
+        { field: 'fullName.ar', operator: '>=', value: term },
+        { field: 'fullName.ar', operator: '<=', value: term + '' },
+      ], null, 8);
+      if (error) console.error('[Scanner] name search:', error);
+      setNameResults((data || []).filter(m => m.status !== 'archived'));
+    } catch (err) {
+      console.error('[Scanner] name search:', err);
+      setNameResults([]);
+    }
+    setNameSearching(false);
+  }, [tenantId]);
 
   // The desk needs the member's history and subscription regardless of whether
   // the check-in itself succeeds — an expired or already-checked-in member is
@@ -324,6 +341,57 @@ export default function AttendanceScannerPage() {
                 🔍
               </button>
             </div>
+          </div>
+
+          {/* Check in by name — for members who know neither their code nor
+              their number. */}
+          <div style={{ marginTop: 'var(--space-5)', borderTop: '1px solid var(--glass-border)', paddingTop: 'var(--space-4)' }}>
+            <p style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)' }}>
+              {isAr ? 'أو دوّر بالاسم' : 'Or search by name'}
+            </p>
+            <div style={{ display: 'flex', gap: 'var(--space-2)', maxWidth: 360, margin: '0 auto' }}>
+              <input className="form-input" type="text" value={nameQuery}
+                onChange={e => { setNameQuery(e.target.value); runNameSearch(e.target.value); }}
+                placeholder={isAr ? 'أول الاسم — مثال: أحمد' : 'Start of the name'} />
+            </div>
+
+            {nameQuery.trim().length >= 2 && (
+              <div style={{ maxWidth: 360, margin: 'var(--space-3) auto 0', textAlign: isAr ? 'right' : 'left' }}>
+                {nameSearching ? (
+                  <p style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-sm)' }}>{t('common.loading')}</p>
+                ) : nameResults.length === 0 ? (
+                  <p style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-sm)' }}>
+                    {isAr ? 'مفيش نتائج — جرّب أول الاسم بالظبط' : 'No matches — try the exact start of the name'}
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {nameResults.map(m => (
+                      <button key={m.id}
+                        onClick={() => { setNameQuery(''); setNameResults([]); processCheckIn(m); }}
+                        style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-2)',
+                          padding: '8px 12px', background: 'var(--pt-darker)', borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--glass-border)', cursor: 'pointer', width: '100%',
+                          textAlign: isAr ? 'right' : 'left',
+                        }}>
+                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>
+                          {m.fullName?.[locale] || m.fullName?.ar}
+                        </span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <code dir="ltr" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gold)' }}>
+                            {m.membershipNumber}
+                          </code>
+                          <span className={`badge ${m.status === 'active' ? 'badge-success' : m.status === 'frozen' ? 'badge-frozen' : 'badge-danger'}`}
+                            style={{ fontSize: 10 }}>
+                            ● {t(`common.${m.status}`)}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

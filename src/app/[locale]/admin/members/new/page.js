@@ -7,7 +7,9 @@ import { addTenantDocument, getTenantCollectionCount, getTenantDocuments, setDoc
 import { nextSequentialNumber } from '@/lib/firebase/counters';
 import { logAuditClient } from '@/lib/firebase/audit';
 import { useTenant } from '@/context/TenantContext';
-import { MEMBERSHIP_PLANS } from '@/lib/membership-plans';
+import { useMembershipPlans } from '@/lib/hooks/useMembershipPlans';
+import { codeErrorMessage } from '@/lib/member-code';
+import { checkCodeAvailable } from '@/lib/firebase/member-codes';
 import { buildInstallmentSchedule, splitPayment } from '@/lib/installments';
 import MemberCodeCard from '@/components/MemberCodeCard';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
@@ -36,6 +38,7 @@ export default function NewMemberPage() {
     selectedPlan: '', paymentMethod: 'cash',
     discount: 0, notes: '',
     createAccount: false, accountEmail: '', accountPassword: '',
+    memberCode: '',
     assignedTrainer: '',
     // Instalments
     payFull: true,
@@ -49,7 +52,8 @@ export default function NewMemberPage() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const selectedPlan = MEMBERSHIP_PLANS.find(p => p.id === formData.selectedPlan);
+  const { plans: membershipPlans } = useMembershipPlans(tenantId);
+  const selectedPlan = membershipPlans.find(p => p.id === formData.selectedPlan);
 
   useEffect(() => {
     async function loadTrainers() {
@@ -99,7 +103,20 @@ export default function NewMemberPage() {
 
     setLoading(true);
     try {
-      const memberNumber = await generateMemberNumber();
+      // The admin may hand out their own code (the number on the member's card);
+      // otherwise fall back to the atomic sequential number.
+      let memberNumber;
+      if (formData.memberCode.trim()) {
+        const avail = await checkCodeAvailable(tenantId, formData.memberCode);
+        if (!avail.ok) {
+          toast.error(codeErrorMessage(avail.error, isAr));
+          setLoading(false);
+          return;
+        }
+        memberNumber = avail.code;
+      } else {
+        memberNumber = await generateMemberNumber();
+      }
       const now = new Date();
       const plan = selectedPlan;
       const endDate = new Date(now);
@@ -150,7 +167,7 @@ export default function NewMemberPage() {
         joinDate: Timestamp.fromDate(now),
         status: 'active',
         uid: memberUid,
-        currentPlan: plan ? { planId: plan.id, planName: plan.name[locale], type: plan.type, endDate: Timestamp.fromDate(endDate) } : null,
+        currentPlan: plan ? { planId: plan.planId || plan.id, planName: plan.name[locale], type: plan.type, endDate: Timestamp.fromDate(endDate) } : null,
         planName: plan ? plan.name[locale] : '',
         endDate: plan ? Timestamp.fromDate(endDate) : null, // proper Timestamp (was a lossy locale string)
         assignedTrainer: (() => { const tr = trainers.find(t => t.id === formData.assignedTrainer); return tr ? (tr.uid || formData.assignedTrainer) : null; })(),
@@ -184,7 +201,7 @@ export default function NewMemberPage() {
 
         await addTenantDocument(tenantId, 'subscriptions', {
           memberId,
-          planId: plan.id,
+          planId: plan.planId || plan.id,
           planSnapshot: plan,
           startDate: Timestamp.fromDate(now),
           endDate: Timestamp.fromDate(endDate),
@@ -218,7 +235,7 @@ export default function NewMemberPage() {
             memberId,
             memberName: formData.fullNameAr,
             type: 'subscription',
-            referenceId: plan.id,
+            referenceId: plan.planId || plan.id,
             amount: plan.price,
             discount: (plan.price * formData.discount) / 100,
             netAmount: money.paid,
@@ -288,6 +305,7 @@ export default function NewMemberPage() {
                 height: '', weight: '', medicalNotes: '', notes: '',
                 selectedPlan: '', discount: 0,
                 createAccount: false, accountEmail: '', accountPassword: '',
+                memberCode: '',
                 payFull: true, paidNow: '', scheduleInstallments: false,
                 installmentCount: 2, firstDueDate: '',
               }));
@@ -357,6 +375,17 @@ export default function NewMemberPage() {
               <input className="form-input" type="text" dir="ltr" value={formData.fullNameEn}
                 onChange={e => handleChange('fullNameEn', e.target.value)}
                 placeholder="Ahmed Mohamed Said" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">{isAr ? 'كود العضو' : 'Member code'}</label>
+              <input className="form-input" type="text" dir="ltr" value={formData.memberCode}
+                onChange={e => handleChange('memberCode', e.target.value)}
+                placeholder={isAr ? 'مثال: 7470 — سيبها فاضية للترقيم التلقائي' : 'e.g. 7470 — leave blank to auto-number'} />
+              <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>
+                {isAr
+                  ? 'ده الكود اللي العضو هيسجّل بيه حضوره على الماسح أو الـ QR.'
+                  : 'This is the code the member checks in with at the scanner or QR.'}
+              </small>
             </div>
             <div className="form-group">
               <label className="form-label">{t('members.phone')} *</label>
@@ -550,7 +579,7 @@ export default function NewMemberPage() {
               {t('members.selectPlan')} *
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
-              {MEMBERSHIP_PLANS.map(plan => (
+              {membershipPlans.map(plan => (
                 <button key={plan.id}
                   onClick={() => handleChange('selectedPlan', plan.id)}
                   style={{

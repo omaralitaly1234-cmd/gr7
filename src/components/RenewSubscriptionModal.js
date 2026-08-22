@@ -14,11 +14,11 @@
 // between a signup and a renewal.
 // ============================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { addTenantDocument, updateTenantDocument } from '@/lib/firebase/firestore';
 import { logAuditClient } from '@/lib/firebase/audit';
-import { MEMBERSHIP_PLANS } from '@/lib/membership-plans';
+import { useMembershipPlans } from '@/lib/hooks/useMembershipPlans';
 import { buildInstallmentSchedule, splitPayment } from '@/lib/installments';
 import { computeRenewal } from '@/lib/subscription-math';
 import { Timestamp, increment } from 'firebase/firestore';
@@ -35,7 +35,7 @@ export default function RenewSubscriptionModal({
   const t = useTranslations();
   const isAr = locale === 'ar';
 
-  const [planId, setPlanId] = useState(currentSub?.planId || '');
+  const [planId, setPlanId] = useState('');
   const [discount, setDiscount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [payFull, setPayFull] = useState(true);
@@ -45,7 +45,18 @@ export default function RenewSubscriptionModal({
   const [firstDueDate, setFirstDueDate] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const plan = MEMBERSHIP_PLANS.find(p => p.id === planId);
+  const { plans: membershipPlans } = useMembershipPlans(tenantId);
+  const plan = membershipPlans.find(p => p.id === planId);
+
+  // Preselect whatever the member is currently on. Subscriptions store the
+  // STABLE planId, while the dropdown is keyed by document id, so match either.
+  useEffect(() => {
+    if (planId || !membershipPlans.length || !currentSub?.planId) return;
+    const match = membershipPlans.find(
+      p => p.planId === currentSub.planId || p.id === currentSub.planId
+    );
+    if (match) setPlanId(match.id);
+  }, [membershipPlans, currentSub, planId]);
 
   const total = plan ? plan.price - (plan.price * discount) / 100 : 0;
   const money = splitPayment(total, payFull ? total : paidNow);
@@ -101,7 +112,7 @@ export default function RenewSubscriptionModal({
       // 1. New subscription — same shape the signup wizard writes.
       const { id: newSubId, error: subError } = await addTenantDocument(tenantId, 'subscriptions', {
         memberId: member.id,
-        planId: plan.id,
+        planId: plan.planId || plan.id,
         planSnapshot: plan,
         startDate: Timestamp.fromDate(startDate),
         endDate: Timestamp.fromDate(endDate),
@@ -150,7 +161,7 @@ export default function RenewSubscriptionModal({
           memberId: member.id,
           memberName,
           type: 'subscription',
-          referenceId: plan.id,
+          referenceId: plan.planId || plan.id,
           amount: plan.price,
           discount: (plan.price * discount) / 100,
           netAmount: money.paid,
@@ -170,7 +181,7 @@ export default function RenewSubscriptionModal({
       const { error: memberError } = await updateTenantDocument(tenantId, 'members', member.id, {
         status: 'active',
         currentPlan: {
-          planId: plan.id,
+          planId: plan.planId || plan.id,
           planName: plan.name[locale] || plan.name.ar,
           type: plan.type,
           endDate: Timestamp.fromDate(endDate),
@@ -224,7 +235,7 @@ export default function RenewSubscriptionModal({
             <label className="form-label">{isAr ? 'الباقة' : 'Plan'}</label>
             <select className="form-select" value={planId} onChange={e => setPlanId(e.target.value)}>
               <option value="">{isAr ? '— اختر الباقة —' : '— Select a plan —'}</option>
-              {MEMBERSHIP_PLANS.map(p => (
+              {membershipPlans.map(p => (
                 <option key={p.id} value={p.id}>
                   {p.name[locale] || p.name.ar} — {p.price} {t('common.egp')} ({p.duration} {isAr ? 'يوم' : 'days'})
                 </option>

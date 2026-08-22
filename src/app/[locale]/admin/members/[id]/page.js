@@ -9,6 +9,9 @@ import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { authPost } from '@/lib/authenticated-fetch';
 import RenewSubscriptionModal from '@/components/RenewSubscriptionModal';
+import { setMemberCode } from '@/lib/firebase/member-codes';
+import { codeErrorMessage } from '@/lib/member-code';
+import { logAuditClient } from '@/lib/firebase/audit';
 import { Timestamp } from 'firebase/firestore';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -47,6 +50,9 @@ export default function MemberProfilePage() {
   const [resetForm, setResetForm] = useState({ next: '', confirm: '' });
   const [resetting, setResetting] = useState(false);
   const [resetDone, setResetDone] = useState(null); // { password, email, sessionsRevoked }
+  const [showCodeModal, setShowCodeModal] = useState(false);
+  const [codeInput, setCodeInput] = useState('');
+  const [savingCode, setSavingCode] = useState(false);
 
   // Owner-only, matching the delete action and firestore.rules.
   const canDelete = tenantRole === 'owner' || isSuperAdmin;
@@ -198,6 +204,30 @@ export default function MemberProfilePage() {
       toast.error(isAr ? 'حدث خطأ أثناء تخصيص المدرب' : 'Error assigning trainer');
     }
     setAssigningTrainer(false);
+  };
+
+  // Change the code the member checks in with. Writes membershipNumber and
+  // qrCode together — they are one value in this data model, and letting them
+  // drift would mean the door and the printed card disagree.
+  const handleSaveCode = async () => {
+    if (savingCode) return;
+    setSavingCode(true);
+    const res = await setMemberCode(tenantId, memberId, codeInput);
+    if (!res.ok) {
+      toast.error(res.error === 'write_failed'
+        ? (isAr ? 'تعذّر حفظ الكود' : 'Could not save the code')
+        : codeErrorMessage(res.error, isAr));
+      setSavingCode(false);
+      return;
+    }
+    setMember(prev => ({ ...prev, membershipNumber: res.code, qrCode: res.code }));
+    logAuditClient({
+      action: 'update', entity: 'member', entityId: memberId, tenantId,
+      details: { description: { en: `Changed check-in code to ${res.code}`, ar: `تغيير كود الحضور إلى ${res.code}` } },
+    });
+    toast.success(isAr ? 'تم تغيير الكود ✅' : 'Code updated ✅');
+    setShowCodeModal(false);
+    setSavingCode(false);
   };
 
   // Reset the member's login password. Works for every member with an account —
@@ -392,6 +422,13 @@ export default function MemberProfilePage() {
             style={{ color: '#00B0FF', borderColor: 'rgba(0,176,255,0.3)' }}
           >
             👨‍🏫 {member.assignedTrainer ? (isAr ? 'تغيير المدرب' : 'Change Trainer') : (isAr ? 'تخصيص مدرب' : 'Assign Trainer')}
+          </button>
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={() => { setCodeInput(member.membershipNumber || ''); setShowCodeModal(true); }}
+            style={{ color: 'var(--pt-gold)', borderColor: 'rgba(245,197,24,0.4)' }}
+          >
+            🎫 {isAr ? 'تعديل الكود' : 'Edit Code'}
           </button>
           {canResetPassword && member.uid && (
             <button
@@ -723,6 +760,49 @@ export default function MemberProfilePage() {
           onClose={() => setShowRenewModal(false)}
           onRenewed={loadMember}
         />
+      )}
+
+      {/* Edit check-in code */}
+      {showCodeModal && (
+        <div className="modal-overlay" onClick={() => { if (!savingCode) setShowCodeModal(false); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+            <div className="modal-header">
+              <h2>🎫 {isAr ? 'تعديل كود العضو' : 'Edit Member Code'}</h2>
+              <button onClick={() => { if (!savingCode) setShowCodeModal(false); }} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+                {isAr
+                  ? 'ده الكود اللي العضو بيسجّل بيه حضوره على الماسح أو الـ QR.'
+                  : 'This is the code the member checks in with at the scanner or QR.'}
+              </p>
+              <div className="form-group">
+                <label className="form-label">{isAr ? 'الكود' : 'Code'}</label>
+                <input className="form-input" type="text" dir="ltr" autoFocus
+                  value={codeInput}
+                  onChange={e => setCodeInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSaveCode(); }}
+                  placeholder="7470" />
+                <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>
+                  {isAr ? `الكود الحالي: ${member.membershipNumber || '—'}` : `Current: ${member.membershipNumber || '—'}`}
+                </small>
+              </div>
+              <div style={{ marginTop: 'var(--space-3)', padding: 'var(--space-3)', background: 'var(--pt-darker)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-400)' }}>
+                {isAr
+                  ? 'لو العضو معاه كارت أو QR مطبوع بالكود القديم، مش هيشتغل بعد التغيير — لازم يتطبع من تاني.'
+                  : 'If the member has a card or QR printed with the old code, it will stop working — it needs reprinting.'}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowCodeModal(false)} disabled={savingCode}>
+                {t('common.cancel')}
+              </button>
+              <button className="btn btn-primary" onClick={handleSaveCode} disabled={savingCode}>
+                {savingCode ? '⏳' : '💾'} {t('common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Reset password */}

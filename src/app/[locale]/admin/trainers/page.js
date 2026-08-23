@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, addTenantDocument, updateTenantDocument, deleteTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
+import { getTenantDocuments, updateTenantDocument, deleteTenantDocument, getTenantCollectionCount, clearReadCache } from '@/lib/firebase/firestore';
+import { authPost } from '@/lib/authenticated-fetch';
 import { useTenant } from '@/context/TenantContext';
-import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
 
 export default function TrainersPage() {
@@ -14,7 +14,6 @@ export default function TrainersPage() {
   const locale = params?.locale || 'ar';
   const isAr = locale === 'ar';
   const { tenantId } = useTenant();
-  const { user } = useAuth();
 
   const [trainers, setTrainers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -64,84 +63,43 @@ export default function TrainersPage() {
     }
     setSaving(true);
     try {
-      // Use a secondary Firebase App to create the trainer's auth account
-      // This prevents signing out the current gym owner
-      const { initializeApp, deleteApp } = await import('firebase/app');
-      const { getAuth, createUserWithEmailAndPassword, updateProfile } = await import('firebase/auth');
+      // Creating a trainer is three linked writes (auth account, /users doc,
+      // tenant trainer doc) plus the custom claims the trainer needs to log in.
+      // Doing that from the browser left the trainer half-created whenever one
+      // write was refused — the account existed but nothing appeared in the
+      // list, and retrying failed with "email already in use". The server route
+      // does all four with the Admin SDK and rolls back if any step fails.
+      const res = await authPost('/api/admin/trainers', {
+        tenantId,
+        email: form.email.trim(),
+        password: form.password,
+        name: form.name,
+        phone: form.phone || '',
+        specialization: form.specialization || '',
+        commission: form.commission,
+        gender: form.gender || 'male',
+      });
 
-      const firebaseConfig = {
-        apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-        authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      };
+      const result = await res.json().catch(() => ({}));
 
-      // Create a temporary secondary app
-      const secondaryApp = initializeApp(firebaseConfig, 'trainerCreator_' + Date.now());
-      const secondaryAuth = getAuth(secondaryApp);
-
-      try {
-        // 1. Create Firebase Auth account using secondary app
-        const displayName = form.name.ar || form.name.en || '';
-        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, form.email, form.password);
-        const trainerUid = userCredential.user.uid;
-        await updateProfile(userCredential.user, { displayName });
-
-        // Sign out from secondary auth immediately
-        await secondaryAuth.signOut();
-
-        // 2. Create user document in Firestore
-        const { setDocument, addTenantDocument: addTrainerDoc } = await import('@/lib/firebase/firestore');
-        const { serverTimestamp } = await import('firebase/firestore');
-
-        await setDocument('users', trainerUid, {
-          uid: trainerUid,
-          email: form.email,
-          phone: form.phone || '',
-          displayName,
-          role: 'trainer',
-          lang: 'ar',
-          avatar: '',
-          isActive: true,
-          tenantId,
-          superAdmin: false,
-          tenantRole: 'trainer',
-          fcmTokens: [],
-        }, false);
-
-        // 3. Add trainer to tenant's trainers sub-collection
-        await addTrainerDoc(tenantId, 'trainers', {
-          uid: trainerUid,
-          name: form.name,
-          phone: form.phone || '',
-          email: form.email,
-          specialization: form.specialization || '',
-          commission: form.commission || 10,
-          gender: form.gender || 'male',
-          status: 'active',
-          rating: 0,
-          totalSessions: 0,
-          monthlyEarnings: 0,
-        });
-
-        toast.success(isAr ? 'تم إنشاء حساب المدرب بنجاح ✅' : 'Trainer account created successfully ✅');
-        setShowForm(false);
-        setForm({ name: { ar: '', en: '' }, phone: '', email: '', password: '', specialization: '', commission: 10, status: 'active', gender: 'male' });
-        loadData();
-      } finally {
-        // Always clean up the secondary app
-        try { await deleteApp(secondaryApp); } catch {}
+      if (!res.ok || !result.success) {
+        // The route already returns a human-readable message for the common
+        // cases (duplicate email, weak password, inactive tenant).
+        toast.error(result.message || (isAr ? 'تعذّر إنشاء حساب المدرب' : 'Could not create the trainer account'));
+        setSaving(false);
+        return;
       }
+
+      toast.success(isAr ? 'تم إنشاء حساب المدرب بنجاح ✅' : 'Trainer account created successfully ✅');
+      setShowForm(false);
+      setForm({ name: { ar: '', en: '' }, phone: '', email: '', password: '', specialization: '', commission: 10, status: 'active', gender: 'male' });
+      // The trainer doc was written by the Admin SDK, so this client's read
+      // cache still holds the old list — clear it before refetching.
+      clearReadCache();
+      loadData();
     } catch (err) {
       console.error('[Trainers] Error creating trainer:', err);
-      let msg = err.message || (isAr ? 'حدث خطأ' : 'Error occurred');
-      if (err.code === 'auth/email-already-in-use') {
-        msg = isAr ? 'البريد الإلكتروني مستخدم بالفعل' : 'Email already in use';
-      } else if (err.code === 'auth/weak-password') {
-        msg = isAr ? 'كلمة المرور ضعيفة جداً' : 'Password is too weak';
-      } else if (err.code === 'auth/invalid-email') {
-        msg = isAr ? 'البريد الإلكتروني غير صالح' : 'Invalid email';
-      }
-      toast.error(msg);
+      toast.error(err.message || (isAr ? 'حدث خطأ' : 'Error occurred'));
     }
     setSaving(false);
   };

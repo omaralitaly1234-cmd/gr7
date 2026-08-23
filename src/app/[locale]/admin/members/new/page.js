@@ -11,6 +11,7 @@ import { useMembershipPlans } from '@/lib/hooks/useMembershipPlans';
 import { codeErrorMessage } from '@/lib/member-code';
 import { checkCodeAvailable } from '@/lib/firebase/member-codes';
 import { buildInstallmentSchedule, splitPayment } from '@/lib/installments';
+import { parseDateInput, toDateInputValue } from '@/lib/format';
 import MemberCodeCard from '@/components/MemberCodeCard';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -36,6 +37,9 @@ export default function NewMemberPage() {
     height: '', weight: '', bloodType: '',
     medicalNotes: '', fitnessGoal: 'fitness',
     selectedPlan: '', paymentMethod: 'cash',
+    // Blank = starts today. The admin can postpone or backdate the start so the
+    // member's days are not burned before they actually begin training.
+    subscriptionStart: '',
     discount: 0, notes: '',
     createAccount: false, accountEmail: '', accountPassword: '',
     memberCode: '',
@@ -54,6 +58,17 @@ export default function NewMemberPage() {
 
   const { plans: membershipPlans } = useMembershipPlans(tenantId);
   const selectedPlan = membershipPlans.find(p => p.id === formData.selectedPlan);
+
+  // The subscription term. `subscriptionStart` is a plain "YYYY-MM-DD" from a
+  // date input, parsed at LOCAL midnight — `new Date('2026-08-24')` would be
+  // UTC midnight and shift the whole term by a day west of Greenwich.
+  const startDate = parseDateInput(formData.subscriptionStart) || new Date();
+  const computedEndDate = (() => {
+    if (!selectedPlan) return null;
+    const end = new Date(startDate);
+    end.setDate(end.getDate() + selectedPlan.duration);
+    return end;
+  })();
 
   useEffect(() => {
     async function loadTrainers() {
@@ -119,7 +134,10 @@ export default function NewMemberPage() {
       }
       const now = new Date();
       const plan = selectedPlan;
-      const endDate = new Date(now);
+      // The term runs from the date the admin picked (today when left blank),
+      // NOT from the moment the record is created.
+      const start = parseDateInput(formData.subscriptionStart) || now;
+      const endDate = new Date(start);
       if (plan) endDate.setDate(endDate.getDate() + plan.duration);
 
       let memberUid = null;
@@ -195,7 +213,7 @@ export default function NewMemberPage() {
           ? buildInstallmentSchedule(
               money.remaining,
               formData.installmentCount,
-              formData.firstDueDate ? new Date(formData.firstDueDate).getTime() : Date.now(),
+              parseDateInput(formData.firstDueDate)?.getTime() ?? Date.now(),
             )
           : [];
 
@@ -203,7 +221,7 @@ export default function NewMemberPage() {
           memberId,
           planId: plan.planId || plan.id,
           planSnapshot: plan,
-          startDate: Timestamp.fromDate(now),
+          startDate: Timestamp.fromDate(start),
           endDate: Timestamp.fromDate(endDate),
           originalEndDate: Timestamp.fromDate(endDate),
           status: 'active',
@@ -303,7 +321,7 @@ export default function NewMemberPage() {
                 dateOfBirth: '', nationalId: '', address: '',
                 emergencyName: '', emergencyPhone: '', emergencyRelation: '',
                 height: '', weight: '', medicalNotes: '', notes: '',
-                selectedPlan: '', discount: 0,
+                selectedPlan: '', discount: 0, subscriptionStart: '',
                 createAccount: false, accountEmail: '', accountPassword: '',
                 memberCode: '',
                 payFull: true, paidNow: '', scheduleInstallments: false,
@@ -610,6 +628,32 @@ export default function NewMemberPage() {
             </div>
           </div>
 
+          {/* Subscription start — the admin decides when the days start burning */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+            <div className="form-group">
+              <label className="form-label">{isAr ? 'تاريخ بداية الاشتراك' : 'Subscription start date'}</label>
+              <input className="form-input" type="date" dir="ltr"
+                value={formData.subscriptionStart}
+                onChange={e => handleChange('subscriptionStart', e.target.value)} />
+              <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>
+                {isAr
+                  ? 'سيبها فاضية = يبدأ النهاردة. تقدر تأخّره يوم أو أكتر لو العضو هيبدأ بعدين.'
+                  : 'Leave blank = starts today. Postpone it if the member starts later.'}
+              </small>
+            </div>
+            <div className="form-group">
+              <label className="form-label">{isAr ? 'تاريخ نهاية الاشتراك' : 'Subscription end date'}</label>
+              <div className="form-input" dir="ltr" style={{
+                display: 'flex', alignItems: 'center',
+                color: computedEndDate ? 'var(--pt-gold)' : 'var(--pt-gray-500)', fontWeight: 700,
+              }}>
+                {computedEndDate
+                  ? `${toDateInputValue(computedEndDate)} (${selectedPlan.duration} ${isAr ? 'يوم' : 'days'})`
+                  : (isAr ? 'اختر الباقة الأول' : 'Pick a plan first')}
+              </div>
+            </div>
+          </div>
+
           {/* Payment Section */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
             <div className="form-group">
@@ -710,7 +754,7 @@ export default function NewMemberPage() {
                             {buildInstallmentSchedule(
                               money.remaining,
                               formData.installmentCount,
-                              formData.firstDueDate ? new Date(formData.firstDueDate).getTime() : Date.now(),
+                              parseDateInput(formData.firstDueDate)?.getTime() ?? Date.now(),
                             ).map(inst => (
                               <div key={inst.number} style={{
                                 display: 'flex', justifyContent: 'space-between',

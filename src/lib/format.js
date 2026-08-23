@@ -27,6 +27,32 @@ export function formatDate(value, locale = 'ar', opts) {
   return d.toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-US', opts);
 }
 
+/**
+ * Parse an `<input type="date">` value ("YYYY-MM-DD") as LOCAL midnight.
+ *
+ * `new Date('2026-08-24')` is parsed as UTC midnight, which lands on the
+ * PREVIOUS day in any timezone behind UTC — a subscription that silently starts
+ * and ends a day early. Returns null for anything that is not a valid date.
+ */
+export function parseDateInput(value) {
+  if (typeof value !== 'string') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  const [, y, mo, d] = m.map(Number);
+  const date = new Date(y, mo - 1, d);
+  // Rejects impossible dates that JS would silently roll over (2026-02-31).
+  if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
+  return date;
+}
+
+/** Format a value as the "YYYY-MM-DD" string an `<input type="date">` expects. */
+export function toDateInputValue(value) {
+  const d = toDate(value);
+  if (!d) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 /** Locale-aware number formatting for money/counts. */
 export function formatNumber(n, locale = 'ar') {
   return (Number(n) || 0).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-US');

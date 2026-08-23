@@ -155,6 +155,15 @@
       ]
     },
     {
+      "comment": "Expired-subscription export: status == 'expired' ordered by endDate DESC, so the most recently expired members (the ones still worth calling) come first. The export falls back to the ASCENDING index above if this one has not been deployed yet.",
+      "collectionGroup": "subscriptions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "endDate", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "subscriptions",
       "queryScope": "COLLECTION",
       "fields": [

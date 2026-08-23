@@ -6,6 +6,10 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getTenantDocuments, updateTenantDocument, getTenantDocumentsByIds, getTenantCollectionCount } from '@/lib/firebase/firestore';
 import { computeFreeze } from '@/lib/subscription-math';
+import {
+  buildExpiredRows, EXPIRED_EXPORT_WIDTHS, expiredExportFileName,
+} from '@/lib/expired-export';
+import { downloadXlsx } from '@/lib/xlsx-download';
 import { useTenant } from '@/context/TenantContext';
 import RenewSubscriptionModal from '@/components/RenewSubscriptionModal';
 import { Timestamp } from 'firebase/firestore';
@@ -28,8 +32,13 @@ export default function SubscriptionsPage() {
   const [freezeReason, setFreezeReason] = useState('travel');
   const [freezeDays, setFreezeDays] = useState(7);
   const [renewSub, setRenewSub] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   const PAGE_SIZE = 50;
+  // The table shows one page; the export covers every expired subscription.
+  // The cap is a guard against a runaway read on a gym with years of history —
+  // if it ever bites, the admin is told rather than silently handed a short file.
+  const EXPORT_LIMIT = 5000;
 
   useEffect(() => {
     loadData();
@@ -68,6 +77,69 @@ export default function SubscriptionsPage() {
       });
     } catch (err) { console.error(err); }
     setLoading(false);
+  };
+
+  /**
+   * Download every expired subscription as a real .xlsx file.
+   *
+   * Deliberately re-queries instead of exporting what is on screen: the table
+   * only ever holds one page, and the point of the file is the whole backlog to
+   * chase for renewals.
+   */
+  const exportExpired = async () => {
+    if (!tenantId || exporting) return;
+    setExporting(true);
+    const toastId = toast.loading(isAr ? 'جاري تجهيز الملف…' : 'Preparing the file…');
+    try {
+      const filters = [{ field: 'status', operator: '==', value: 'expired' }];
+
+      // Newest expiries first — those are the ones still worth calling. Falls
+      // back to the ascending index (which is the one deployed today) if the
+      // descending composite index has not been created yet.
+      let { data: subs, error } = await getTenantDocuments(
+        tenantId, 'subscriptions', filters, { field: 'endDate', direction: 'desc' }, EXPORT_LIMIT);
+      if (error) {
+        console.warn('[Subscriptions] endDate desc export failed, retrying ascending:', error);
+        const asc = await getTenantDocuments(
+          tenantId, 'subscriptions', filters, { field: 'endDate', direction: 'asc' }, EXPORT_LIMIT);
+        if (asc.error) throw new Error(asc.error);
+        subs = (asc.data || []).slice().reverse();
+      }
+
+      const rowsData = subs || [];
+      if (rowsData.length === 0) {
+        toast.error(isAr ? 'مفيش اشتراكات منتهية' : 'No expired subscriptions', { id: toastId });
+        setExporting(false);
+        return;
+      }
+
+      const memberMap = await getTenantDocumentsByIds(
+        tenantId, 'members', rowsData.map(s => s.memberId));
+
+      await downloadXlsx(
+        buildExpiredRows(rowsData, memberMap, { locale }),
+        expiredExportFileName(new Date(), locale),
+        {
+          sheetName: isAr ? 'الاشتراكات المنتهية' : 'Expired subscriptions',
+          widths: EXPIRED_EXPORT_WIDTHS,
+          rtl: isAr,
+        },
+      );
+
+      const truncated = rowsData.length >= EXPORT_LIMIT;
+      toast.success(
+        truncated
+          ? (isAr
+            ? `تم تنزيل أول ${EXPORT_LIMIT} اشتراك (الأحدث انتهاءً)`
+            : `Downloaded the ${EXPORT_LIMIT} most recently expired`)
+          : (isAr ? `تم تنزيل ${rowsData.length} اشتراك ✅` : `Downloaded ${rowsData.length} subscriptions ✅`),
+        { id: toastId },
+      );
+    } catch (err) {
+      console.error('[Subscriptions] export failed:', err);
+      toast.error(isAr ? 'تعذّر تجهيز الملف' : 'Could not build the file', { id: toastId });
+    }
+    setExporting(false);
   };
 
   // O(1) member lookups (was members.find per row → O(n²) across the table)
@@ -196,6 +268,10 @@ export default function SubscriptionsPage() {
           <option value="frozen">{t('common.frozen')}</option>
         </select>
         <button className="btn btn-ghost btn-sm" onClick={loadData}>🔄 {t('common.refresh')}</button>
+        <button className="btn btn-secondary btn-sm" onClick={exportExpired} disabled={exporting}
+          title={isAr ? 'ملف إكسيل بكل الاشتراكات المنتهية' : 'Excel file with every expired subscription'}>
+          {exporting ? '⏳' : '⬇️'} {isAr ? 'تنزيل المنتهية (Excel)' : 'Export expired (Excel)'}
+        </button>
       </div>
 
       {/* Table */}

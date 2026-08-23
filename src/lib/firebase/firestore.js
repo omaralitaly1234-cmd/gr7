@@ -312,7 +312,14 @@ export async function getTenantFieldSum(tenantId, collectionName, field, filters
  * just to resolve a handful of names for the rows they render. With ~5k members
  * that was a multi-megabyte download per page view; fetching only the ids that
  * are actually on screen turns it into one or two small reads.
+ *
+ * Chunks run a few at a time rather than all at once: a table page needs two or
+ * three chunks, but the expired-subscription export passes thousands of ids,
+ * and firing a hundred simultaneous queries just makes them queue behind each
+ * other with worse failure behaviour.
  */
+const BY_IDS_CONCURRENCY = 8;
+
 export async function getTenantDocumentsByIds(tenantId, collectionName, ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
   const out = new Map();
@@ -322,11 +329,15 @@ export async function getTenantDocumentsByIds(tenantId, collectionName, ids) {
   const chunks = [];
   for (let i = 0; i < unique.length; i += 30) chunks.push(unique.slice(i, i + 30));
 
-  const snapshots = await Promise.all(
-    chunks.map((chunk) => getDocs(query(collection(db, path), where(documentId(), 'in', chunk))))
-  );
-  for (const snap of snapshots) {
-    snap.docs.forEach((d) => out.set(d.id, { id: d.id, ...d.data() }));
+  for (let i = 0; i < chunks.length; i += BY_IDS_CONCURRENCY) {
+    const snapshots = await Promise.all(
+      chunks.slice(i, i + BY_IDS_CONCURRENCY).map((chunk) =>
+        getDocs(query(collection(db, path), where(documentId(), 'in', chunk)))
+      )
+    );
+    for (const snap of snapshots) {
+      snap.docs.forEach((d) => out.set(d.id, { id: d.id, ...d.data() }));
+    }
   }
   return out;
 }

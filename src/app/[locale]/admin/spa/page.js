@@ -1,25 +1,30 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+// Spa desk — bookings plus the gym's own editable service/package catalogue.
+// Prices and services used to be a hard-coded list in this file; they now live
+// in `tenants/{tid}/spa_services` and the admin edits them right here.
+// Changing a service never touches bookings already made: each booking stores
+// the name and price it was sold at.
+
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments, addTenantDocument, updateTenantDocument } from '@/lib/firebase/firestore';
 import MemberPicker from '@/components/MemberPicker';
 import { nextSequentialNumber } from '@/lib/firebase/counters';
 import { useTenant } from '@/context/TenantContext';
+import { useSpaServices } from '@/lib/hooks/useSpaServices';
+import {
+  createTenantSpaService, updateTenantSpaService, deleteTenantSpaService,
+} from '@/lib/firebase/spa-services-store';
+import { spaServiceErrorMessage, DEFAULT_SPA_ICON } from '@/lib/spa-services';
+import { logAuditClient } from '@/lib/firebase/audit';
 import { Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
-const SPA_SERVICES = [
-  { id: 'steam', icon: '♨️', ar: 'غرفة بخار', en: 'Steam Room', price: 150 },
-  { id: 'sauna', icon: '🧖', ar: 'ساونا', en: 'Sauna', price: 200 },
-  { id: 'jacuzzi', icon: '🛁', ar: 'جاكوزي', en: 'Jacuzzi', price: 250 },
-  { id: 'massage', icon: '💆', ar: 'مساج', en: 'Massage', price: 350 },
-  { id: 'facial', icon: '✨', ar: 'تنظيف بشرة', en: 'Facial', price: 300 },
-  { id: 'body_wrap', icon: '🧴', ar: 'لفائف الجسم', en: 'Body Wrap', price: 400 },
-  { id: 'cryo', icon: '❄️', ar: 'علاج بالتبريد', en: 'Cryotherapy', price: 500 },
-  { id: 'turkish_bath', icon: '🏠', ar: 'حمام تركي', en: 'Turkish Bath', price: 450 },
-];
+const EMPTY_SERVICE = {
+  icon: DEFAULT_SPA_ICON, nameAr: '', nameEn: '', price: '', duration: 60, sessions: '', active: true,
+};
 
 export default function SpaPage() {
   const t = useTranslations();
@@ -29,16 +34,38 @@ export default function SpaPage() {
   const { tenantId } = useTenant();
 
   const [bookings, setBookings] = useState([]);
-  const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showBooking, setShowBooking] = useState(false);
   const [dateFilter, setDateFilter] = useState('today');
   const [bookForm, setBookForm] = useState({
-    memberId: '', member: null, serviceId: 'steam', duration: 60, price: 150, notes: '',
+    memberId: '', member: null, serviceId: '', duration: 60, price: 0, notes: '',
     scheduledTime: '', paymentMethod: 'cash',
   });
 
+  // The gym's catalogue. `includeInactive` so the management grid can show a
+  // hidden service; the booking dropdown filters them back out.
+  const { services, loading: servicesLoading, reload: reloadServices } =
+    useSpaServices(tenantId, { includeInactive: true });
+  const sellable = useMemo(() => services.filter(s => s.active), [services]);
+
+  const [editingService, setEditingService] = useState(null); // doc id, or 'new'
+  const [serviceForm, setServiceForm] = useState(EMPTY_SERVICE);
+  const [savingService, setSavingService] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
   useEffect(() => { loadData(); }, [tenantId, dateFilter]);
+
+  // Keep the booking form pointed at a service that still exists — the admin
+  // may have just renamed, hidden or deleted the one it was holding.
+  useEffect(() => {
+    if (sellable.length === 0) return;
+    const current = sellable.find(s => s.serviceId === bookForm.serviceId);
+    if (!current) {
+      const first = sellable[0];
+      setBookForm(f => ({ ...f, serviceId: first.serviceId, price: first.price, duration: first.duration }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sellable]);
 
   const loadData = async () => {
     if (!tenantId) { setLoading(false); return; }
@@ -64,18 +91,33 @@ export default function SpaPage() {
     return d && d >= today;
   }).reduce((s, b) => s + (b.price || 0), 0);
 
+  const serviceById = useMemo(
+    () => new Map(services.map(s => [s.serviceId, s])),
+    [services],
+  );
+
+  // ==================== Bookings ====================
+
+  const openBookingFor = (service) => {
+    setBookForm(f => ({
+      ...f, serviceId: service.serviceId, price: service.price, duration: service.duration,
+    }));
+    setShowBooking(true);
+  };
+
   const handleBook = async () => {
     if (!tenantId || !bookForm.memberId || !bookForm.serviceId) return;
     try {
       // The picker hands us the full member doc, so no lookup list is needed.
       const member = bookForm.member;
-      const service = SPA_SERVICES.find(s => s.id === bookForm.serviceId);
+      const service = serviceById.get(bookForm.serviceId);
 
       await addTenantDocument(tenantId, 'spa_bookings', {
         memberId: bookForm.memberId,
         memberName: member?.fullName?.[locale] || member?.fullName?.ar || '',
         serviceId: bookForm.serviceId,
-        serviceName: service?.[locale] || service?.ar || '',
+        serviceName: service?.name?.[locale] || service?.name?.ar || '',
+        serviceIcon: service?.icon || DEFAULT_SPA_ICON,
         duration: bookForm.duration,
         price: bookForm.price,
         notes: bookForm.notes,
@@ -99,7 +141,12 @@ export default function SpaPage() {
 
       toast.success(isAr ? 'تم الحجز بنجاح' : 'Booking confirmed');
       setShowBooking(false);
-      setBookForm({ memberId: '', member: null, serviceId: 'steam', duration: 60, price: 150, notes: '', scheduledTime: '', paymentMethod: 'cash' });
+      const fallback = sellable[0];
+      setBookForm({
+        memberId: '', member: null,
+        serviceId: fallback?.serviceId || '', duration: fallback?.duration || 60, price: fallback?.price || 0,
+        notes: '', scheduledTime: '', paymentMethod: 'cash',
+      });
       loadData();
     } catch (err) {
       toast.error(t('common.error'));
@@ -113,6 +160,84 @@ export default function SpaPage() {
     loadData();
   };
 
+  // ==================== Catalogue editing ====================
+
+  const setSvc = (k, v) => setServiceForm(f => ({ ...f, [k]: v }));
+
+  const openNewService = () => { setServiceForm(EMPTY_SERVICE); setEditingService('new'); };
+
+  const openEditService = (svc) => {
+    setServiceForm({
+      icon: svc.icon || DEFAULT_SPA_ICON,
+      nameAr: svc.name?.ar || '',
+      nameEn: svc.name?.en || '',
+      price: svc.price ?? '',
+      duration: svc.duration ?? 60,
+      sessions: svc.sessions ?? '',
+      active: svc.active !== false,
+    });
+    setEditingService(svc.id);
+  };
+
+  const closeService = () => { setEditingService(null); setServiceForm(EMPTY_SERVICE); };
+
+  const saveService = async () => {
+    if (savingService || !tenantId) return;
+    setSavingService(true);
+    const isNew = editingService === 'new';
+    const res = isNew
+      ? await createTenantSpaService(tenantId, serviceForm, services.length)
+      : await updateTenantSpaService(tenantId, editingService, serviceForm);
+
+    if (!res.ok) {
+      toast.error(spaServiceErrorMessage(res.error, isAr));
+      setSavingService(false);
+      return;
+    }
+
+    logAuditClient({
+      action: isNew ? 'create' : 'update',
+      entity: 'spa_service',
+      entityId: isNew ? res.id : editingService,
+      tenantId,
+      details: {
+        description: {
+          en: `${isNew ? 'Created' : 'Updated'} spa service ${serviceForm.nameAr} at ${serviceForm.price}`,
+          ar: `${isNew ? 'إضافة' : 'تعديل'} خدمة سبا ${serviceForm.nameAr} بسعر ${serviceForm.price}`,
+        },
+      },
+    });
+
+    toast.success(isAr ? 'تم الحفظ ✅' : 'Saved ✅');
+    closeService();
+    reloadServices();
+    setSavingService(false);
+  };
+
+  const removeService = async () => {
+    if (!confirmDelete || !tenantId) return;
+    const res = await deleteTenantSpaService(tenantId, confirmDelete.id);
+    if (!res.ok) { toast.error(spaServiceErrorMessage(res.error, isAr)); return; }
+    logAuditClient({
+      action: 'delete', entity: 'spa_service', entityId: confirmDelete.id, tenantId,
+      severity: 'warning',
+      details: { description: { en: `Deleted spa service ${confirmDelete.name?.ar}`, ar: `حذف خدمة سبا ${confirmDelete.name?.ar}` } },
+    });
+    toast.success(isAr ? 'تم حذف الخدمة' : 'Service deleted');
+    setConfirmDelete(null);
+    reloadServices();
+  };
+
+  const toggleServiceActive = async (svc) => {
+    const res = await updateTenantSpaService(tenantId, svc.id, {
+      icon: svc.icon, nameAr: svc.name?.ar, nameEn: svc.name?.en,
+      price: svc.price, duration: svc.duration, sessions: svc.sessions,
+      active: !(svc.active !== false),
+    });
+    if (!res.ok) { toast.error(spaServiceErrorMessage(res.error, isAr)); return; }
+    reloadServices();
+  };
+
   const statusColors = { confirmed: 'badge-success', in_progress: 'badge-gold', completed: 'badge-info', cancelled: 'badge-danger' };
   const statusLabels = { confirmed: isAr ? 'مؤكد' : 'Confirmed', in_progress: isAr ? 'جاري' : 'In Progress', completed: isAr ? 'مكتمل' : 'Completed', cancelled: isAr ? 'ملغي' : 'Cancelled' };
 
@@ -120,7 +245,12 @@ export default function SpaPage() {
     <div className="animate-fadeIn">
       <div className="page-header">
         <h1><span>🧖</span> {t('spa.title')}</h1>
-        <button className="btn btn-primary" onClick={() => setShowBooking(true)}>+ {t('spa.newBooking')}</button>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={openNewService}>+ {isAr ? 'خدمة / باكدج' : 'Service / Package'}</button>
+          <button className="btn btn-primary" onClick={() => setShowBooking(true)} disabled={sellable.length === 0}>
+            + {t('spa.newBooking')}
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -155,23 +285,61 @@ export default function SpaPage() {
         </div>
       </div>
 
-      {/* Services Grid */}
+      {/* Services Grid — click a card to book it, use the buttons to edit it */}
       <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
-        <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)' }}>✨ {t('spa.services')}</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 'var(--space-3)' }}>
-          {SPA_SERVICES.map(service => (
-            <div key={service.id} onClick={() => { setBookForm(f => ({ ...f, serviceId: service.id, price: service.price })); setShowBooking(true); }}
-              style={{
-                padding: 'var(--space-3)', textAlign: 'center', borderRadius: 'var(--radius-md)',
-                background: 'var(--pt-darker)', border: '1px solid var(--glass-border)',
-                cursor: 'pointer', transition: 'all 0.3s',
-              }}>
-              <div style={{ fontSize: '2rem', marginBottom: '4px' }}>{service.icon}</div>
-              <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>{service[locale]}</div>
-              <div style={{ color: 'var(--pt-gold)', fontWeight: 800, fontSize: 'var(--font-size-sm)' }}>{service.price} {t('common.egp')}</div>
-            </div>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+          <h3 style={{ fontSize: 'var(--font-size-md)', margin: 0 }}>✨ {t('spa.services')} & {t('spa.packages')}</h3>
+          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>
+            {isAr
+              ? 'تعديل السعر بيأثر على الحجوزات الجديدة بس — الحجوزات القديمة بتفضل بسعرها.'
+              : 'Editing a price affects new bookings only — past bookings keep their price.'}
+          </span>
         </div>
+        {servicesLoading ? (
+          <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--pt-gray-500)' }}>{t('common.loading')}</div>
+        ) : services.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--pt-gray-500)' }}>
+            📭 {t('common.noData')}
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
+            {services.map(service => (
+              <div key={service.id}
+                style={{
+                  padding: 'var(--space-3)', textAlign: 'center', borderRadius: 'var(--radius-md)',
+                  background: 'var(--pt-darker)', border: '1px solid var(--glass-border)',
+                  transition: 'all 0.3s', opacity: service.active ? 1 : 0.5,
+                }}>
+                <div onClick={() => service.active && openBookingFor(service)}
+                  style={{ cursor: service.active ? 'pointer' : 'default' }}>
+                  <div style={{ fontSize: '2rem', marginBottom: '4px' }}>{service.icon}</div>
+                  <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>{service.name?.[locale] || service.name?.ar}</div>
+                  <div style={{ color: 'var(--pt-gold)', fontWeight: 800, fontSize: 'var(--font-size-sm)' }}>
+                    {service.price.toLocaleString()} {t('common.egp')}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)', marginTop: '2px' }}>
+                    ⏱️ {service.duration} {isAr ? 'دقيقة' : 'min'}
+                    {service.sessions ? ` · 📊 ${service.sessions} ${isAr ? 'جلسة' : 'sessions'}` : ''}
+                  </div>
+                  {!service.active && (
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-danger)', marginTop: '2px' }}>
+                      {isAr ? 'متوقفة' : 'Hidden'}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '2px', justifyContent: 'center', marginTop: 'var(--space-2)' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => openEditService(service)} title={t('common.edit')}>✏️</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => toggleServiceActive(service)}
+                    title={service.active ? (isAr ? 'إخفاء' : 'Hide') : (isAr ? 'تفعيل' : 'Activate')}>
+                    {service.active ? '🚫' : '✅'}
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(service)}
+                    title={t('common.delete')} style={{ color: 'var(--pt-danger)' }}>🗑️</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Filter & Table */}
@@ -197,12 +365,12 @@ export default function SpaPage() {
               <tr><td colSpan={7} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--pt-gray-500)' }}>📭 {t('common.noData')}</td></tr>
             ) : (
               bookings.map((b, i) => {
-                const svc = SPA_SERVICES.find(s => s.id === b.serviceId);
+                const svc = serviceById.get(b.serviceId);
                 return (
                   <tr key={b.id}>
                     <td style={{ color: 'var(--pt-gray-500)' }}>{i + 1}</td>
                     <td style={{ fontWeight: 600 }}>{b.memberName}</td>
-                    <td>{svc?.icon} {b.serviceName || svc?.[locale]}</td>
+                    <td>{b.serviceIcon || svc?.icon || DEFAULT_SPA_ICON} {b.serviceName || svc?.name?.[locale] || svc?.name?.ar || '—'}</td>
                     <td>{b.duration} {isAr ? 'دقيقة' : 'min'}</td>
                     <td style={{ fontWeight: 700, color: 'var(--pt-gold)' }}>{(b.price || 0).toLocaleString()} {t('common.egp')}</td>
                     <td><span className={`badge ${statusColors[b.status] || 'badge-info'}`} style={{ fontSize: '10px' }}>● {statusLabels[b.status] || b.status}</span></td>
@@ -242,10 +410,19 @@ export default function SpaPage() {
               <div className="form-group">
                 <label className="form-label">{t('spa.service')} *</label>
                 <select className="form-select" value={bookForm.serviceId} onChange={e => {
-                  const svc = SPA_SERVICES.find(s => s.id === e.target.value);
-                  setBookForm(f => ({ ...f, serviceId: e.target.value, price: svc?.price || f.price }));
+                  const svc = serviceById.get(e.target.value);
+                  setBookForm(f => ({
+                    ...f,
+                    serviceId: e.target.value,
+                    price: svc ? svc.price : f.price,
+                    duration: svc ? svc.duration : f.duration,
+                  }));
                 }}>
-                  {SPA_SERVICES.map(s => (<option key={s.id} value={s.id}>{s.icon} {s[locale]} — {s.price} {t('common.egp')}</option>))}
+                  {sellable.map(s => (
+                    <option key={s.id} value={s.serviceId}>
+                      {s.icon} {s.name?.[locale] || s.name?.ar} — {s.price.toLocaleString()} {t('common.egp')}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-4)' }}>
@@ -272,7 +449,90 @@ export default function SpaPage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowBooking(false)}>{t('common.cancel')}</button>
-              <button className="btn btn-primary" onClick={handleBook} disabled={!bookForm.memberId}>✅ {t('spa.confirmBooking')}</button>
+              <button className="btn btn-primary" onClick={handleBook} disabled={!bookForm.memberId || !bookForm.serviceId}>✅ {t('spa.confirmBooking')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create / edit a spa service or package */}
+      {editingService && (
+        <div className="modal-overlay" onClick={() => { if (!savingService) closeService(); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div className="modal-header">
+              <h2>🧖 {editingService === 'new'
+                ? (isAr ? 'خدمة / باكدج جديدة' : 'New Service / Package')
+                : (isAr ? 'تعديل الخدمة' : 'Edit Service')}</h2>
+              <button onClick={closeService} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="grid grid-2" style={{ gap: 'var(--space-3)' }}>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'الاسم بالعربي' : 'Name (Arabic)'} *</label>
+                  <input className="form-input" value={serviceForm.nameAr} onChange={e => setSvc('nameAr', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'الاسم بالإنجليزي' : 'Name (English)'}</label>
+                  <input className="form-input" dir="ltr" value={serviceForm.nameEn} onChange={e => setSvc('nameEn', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'الأيقونة' : 'Icon'}</label>
+                  <input className="form-input" value={serviceForm.icon} onChange={e => setSvc('icon', e.target.value)}
+                    placeholder={DEFAULT_SPA_ICON} maxLength={4} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'السعر' : 'Price'} ({t('common.egp')}) *</label>
+                  <input className="form-input" type="number" min="0" dir="ltr"
+                    value={serviceForm.price} onChange={e => setSvc('price', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'المدة (دقيقة)' : 'Duration (min)'} *</label>
+                  <input className="form-input" type="number" min="1" dir="ltr"
+                    value={serviceForm.duration} onChange={e => setSvc('duration', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'عدد الجلسات' : 'Sessions'}</label>
+                  <input className="form-input" type="number" min="1" dir="ltr"
+                    value={serviceForm.sessions} onChange={e => setSvc('sessions', e.target.value)}
+                    placeholder={isAr ? 'فاضية = جلسة واحدة' : 'Blank = single visit'} />
+                </div>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginTop: 'var(--space-2)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={serviceForm.active !== false} onChange={e => setSvc('active', e.target.checked)} />
+                <span>{isAr ? 'الخدمة معروضة للحجز' : 'Service is available for booking'}</span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={closeService} disabled={savingService}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" onClick={saveService} disabled={savingService}>
+                {savingService ? '⏳' : '💾'} {t('common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {confirmDelete && (
+        <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-header">
+              <h2 style={{ color: 'var(--pt-danger)' }}>🗑️ {isAr ? 'حذف الخدمة' : 'Delete Service'}</h2>
+              <button onClick={() => setConfirmDelete(null)} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 'var(--space-3)' }}>
+                {isAr ? `هتحذف خدمة "${confirmDelete.name?.ar}".` : `Delete the service "${confirmDelete.name?.en || confirmDelete.name?.ar}".`}
+              </p>
+              <div style={{ padding: 'var(--space-3)', background: 'var(--pt-darker)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-sm)', color: 'var(--pt-gray-400)' }}>
+                {isAr
+                  ? 'الحجوزات القديمة على الخدمة دي مش هتتأثر — بس مش هتقدر تحجزها لحد جديد. لو عايز توقفها مؤقتاً بس، استخدم زرار الإخفاء 🚫 بدل الحذف.'
+                  : 'Bookings already made on this service are unaffected — you just cannot book it again. To pause it instead, use the hide button 🚫.'}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setConfirmDelete(null)}>{t('common.cancel')}</button>
+              <button className="btn btn-danger" onClick={removeService}>🗑️ {t('common.delete')}</button>
             </div>
           </div>
         </div>

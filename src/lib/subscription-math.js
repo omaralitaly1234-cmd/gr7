@@ -33,18 +33,35 @@ export function computeFreeze({ endDateMs, freezeDaysUsed = 0, maxFreezeDays = 0
   };
 }
 
+const DAY_MS = 86400000;
+
 /**
  * Compute the dates for a renewal.
  *
- * Renewing while the current term still has days left must NOT throw those days
- * away — the new term starts the moment the old one runs out. Renewing after
- * expiry starts from today.
+ * By default, renewing while the current term still has days left must NOT
+ * throw those days away — the new term starts the moment the old one runs out.
+ * Renewing after expiry starts from today.
  *
- * @param {{ currentEndDateMs?: number|null, durationDays: number, nowMs?: number }} input
+ * `startOverrideMs` lets the admin place the start by hand (the member is
+ * travelling, or pays today but begins next week). The consequences are
+ * reported rather than hidden:
+ *   - `forfeitedDays` — days of the CURRENT term given up by starting before it
+ *     ends. Starting early overlaps the old term, and those days are lost.
+ *   - `gapDays`       — days later than the natural start, i.e. days the member
+ *     is covered by nothing.
+ *
+ * @param {{ currentEndDateMs?: number|null, durationDays: number, nowMs?: number,
+ *           startOverrideMs?: number|null }} input
  * @returns {{ ok: boolean, error?: 'invalid_duration',
- *             startMs?: number, endMs?: number, carriedOverDays?: number }}
+ *             startMs?: number, endMs?: number, carriedOverDays?: number,
+ *             startOverridden?: boolean, forfeitedDays?: number, gapDays?: number }}
  */
-export function computeRenewal({ currentEndDateMs = null, durationDays, nowMs = Date.now() }) {
+export function computeRenewal({
+  currentEndDateMs = null,
+  durationDays,
+  nowMs = Date.now(),
+  startOverrideMs = null,
+}) {
   const duration = Math.floor(Number(durationDays));
   if (!Number.isFinite(duration) || duration < 1) {
     return { ok: false, error: 'invalid_duration' };
@@ -53,12 +70,26 @@ export function computeRenewal({ currentEndDateMs = null, durationDays, nowMs = 
   const now = Number(nowMs);
   const currentEnd = Number(currentEndDateMs);
   const hasRemaining = Number.isFinite(currentEnd) && currentEnd > now;
-  const startMs = hasRemaining ? currentEnd : now;
+  const autoStart = hasRemaining ? currentEnd : now;
+
+  const override = Number(startOverrideMs);
+  const startOverridden = startOverrideMs !== null && startOverrideMs !== undefined
+    && Number.isFinite(override);
+  const startMs = startOverridden ? override : autoStart;
 
   return {
     ok: true,
     startMs,
-    endMs: startMs + duration * 86400000,
-    carriedOverDays: hasRemaining ? Math.ceil((currentEnd - now) / 86400000) : 0,
+    endMs: startMs + duration * DAY_MS,
+    // Only the part of the current term that survives: starting before the old
+    // term ends preserves days up to the chosen start, not past it.
+    carriedOverDays: hasRemaining
+      ? Math.max(0, Math.ceil((Math.min(currentEnd, startMs) - now) / DAY_MS))
+      : 0,
+    startOverridden,
+    forfeitedDays: hasRemaining && startMs < currentEnd
+      ? Math.ceil((currentEnd - startMs) / DAY_MS)
+      : 0,
+    gapDays: Math.max(0, Math.ceil((startMs - autoStart) / DAY_MS)),
   };
 }

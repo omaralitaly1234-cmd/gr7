@@ -22,6 +22,7 @@ import { logAuditClient } from '@/lib/firebase/audit';
 import { useMembershipPlans } from '@/lib/hooks/useMembershipPlans';
 import { buildInstallmentSchedule, splitPayment } from '@/lib/installments';
 import { computeRenewal } from '@/lib/subscription-math';
+import { parseDateInput } from '@/lib/format';
 import { Timestamp, increment } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
@@ -44,6 +45,8 @@ export default function RenewSubscriptionModal({
   const [scheduleInstallments, setScheduleInstallments] = useState(false);
   const [installmentCount, setInstallmentCount] = useState(2);
   const [firstDueDate, setFirstDueDate] = useState('');
+  // Blank = the automatic start (when the current term runs out, or today).
+  const [startOverride, setStartOverride] = useState('');
   const [saving, setSaving] = useState(false);
 
   const { plans: membershipPlans } = useMembershipPlans(tenantId);
@@ -69,12 +72,14 @@ export default function RenewSubscriptionModal({
     const end = currentSub?.endDate?.toDate
       ? currentSub.endDate.toDate()
       : (currentSub?.endDate ? new Date(currentSub.endDate) : null);
+    const override = parseDateInput(startOverride);
     const r = computeRenewal({
       currentEndDateMs: end ? end.getTime() : null,
       durationDays: plan.duration,
+      startOverrideMs: override ? override.getTime() : null,
     });
     return r.ok ? r : null;
-  }, [plan, currentSub]);
+  }, [plan, currentSub, startOverride]);
 
   const fmt = (ms) => new Date(ms).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
@@ -106,7 +111,7 @@ export default function RenewSubscriptionModal({
         ? buildInstallmentSchedule(
             money.remaining,
             installmentCount,
-            firstDueDate ? new Date(firstDueDate).getTime() : Date.now(),
+            parseDateInput(firstDueDate)?.getTime() ?? Date.now(),
           )
         : [];
 
@@ -141,6 +146,11 @@ export default function RenewSubscriptionModal({
         isRenewal: true,
         renewedFromSubId: currentSub?.id || null,
         carriedOverDays: dates.carriedOverDays,
+        // Provenance for a hand-picked start: finance can tell a normal renewal
+        // from one the desk moved, and by how much.
+        startDateOverridden: dates.startOverridden,
+        forfeitedDays: dates.forfeitedDays,
+        gapDays: dates.gapDays,
       });
       if (subError) throw new Error(subError);
 
@@ -202,8 +212,8 @@ export default function RenewSubscriptionModal({
         tenantId,
         details: {
           description: {
-            en: `Renewed ${memberName} on ${plan.name.en} until ${endDate.toISOString().slice(0, 10)}`,
-            ar: `تجديد اشتراك ${memberName} — ${plan.name.ar} حتى ${endDate.toISOString().slice(0, 10)}`,
+            en: `Renewed ${memberName} on ${plan.name.en}: ${startDate.toISOString().slice(0, 10)} → ${endDate.toISOString().slice(0, 10)}${dates.startOverridden ? ' (manual start)' : ''}`,
+            ar: `تجديد اشتراك ${memberName} — ${plan.name.ar}: ${startDate.toISOString().slice(0, 10)} → ${endDate.toISOString().slice(0, 10)}${dates.startOverridden ? ' (بداية يدوية)' : ''}`,
           },
         },
       });
@@ -245,19 +255,61 @@ export default function RenewSubscriptionModal({
             </select>
           </div>
 
+          {/* Manual start date. Blank keeps the automatic behaviour, which is
+              what the desk wants almost every time. */}
+          <div className="form-group" style={{ marginBottom: 'var(--space-3)' }}>
+            <label className="form-label">{isAr ? 'تاريخ بداية الاشتراك' : 'Subscription start date'}</label>
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+              <input className="form-input" type="date" dir="ltr" style={{ flex: 1 }}
+                value={startOverride} onChange={e => setStartOverride(e.target.value)} />
+              {startOverride && (
+                <button className="btn btn-secondary btn-sm" onClick={() => setStartOverride('')}>
+                  ↺ {isAr ? 'تلقائي' : 'Auto'}
+                </button>
+              )}
+            </div>
+            <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>
+              {isAr
+                ? 'سيبها فاضية = يبدأ لما الاشتراك الحالي يخلص (أو النهاردة لو منتهي).'
+                : 'Leave blank = starts when the current term runs out (or today if it has expired).'}
+            </small>
+          </div>
+
           {dates && (
             <div style={{
               padding: 'var(--space-3)', marginBottom: 'var(--space-3)',
               background: 'var(--pt-gold-glow)', border: '1px solid rgba(245,197,24,0.3)',
               borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-sm)',
             }}>
-              <div>📅 {isAr ? 'يبدأ' : 'Starts'}: <strong>{fmt(dates.startMs)}</strong></div>
+              <div>📅 {isAr ? 'يبدأ' : 'Starts'}: <strong>{fmt(dates.startMs)}</strong>
+                {dates.startOverridden && (
+                  <span style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>
+                    {' '}({isAr ? 'يدوي' : 'manual'})
+                  </span>
+                )}
+              </div>
               <div>🏁 {isAr ? 'ينتهي' : 'Ends'}: <strong style={{ color: 'var(--pt-gold)' }}>{fmt(dates.endMs)}</strong></div>
               {dates.carriedOverDays > 0 && (
                 <div style={{ marginTop: 'var(--space-2)', color: 'var(--pt-success)' }}>
                   ✅ {isAr
                     ? `تم ترحيل ${dates.carriedOverDays} يوم متبقية من الاشتراك الحالي`
                     : `${dates.carriedOverDays} remaining days carried over from the current term`}
+                </div>
+              )}
+              {/* Starting before the current term ends overlaps it — say so
+                  plainly instead of quietly eating the member's days. */}
+              {dates.forfeitedDays > 0 && (
+                <div style={{ marginTop: 'var(--space-2)', color: 'var(--pt-danger)' }}>
+                  ⚠️ {isAr
+                    ? `التاريخ ده قبل نهاية الاشتراك الحالي — العضو هيخسر ${dates.forfeitedDays} يوم.`
+                    : `That date is before the current term ends — the member loses ${dates.forfeitedDays} days.`}
+                </div>
+              )}
+              {dates.gapDays > 0 && (
+                <div style={{ marginTop: 'var(--space-2)', color: 'var(--pt-warning)' }}>
+                  ⏳ {isAr
+                    ? `فيه ${dates.gapDays} يوم قبل ما الاشتراك الجديد يبدأ العضو مش هيبقى مغطى فيهم.`
+                    : `${dates.gapDays} days before the new term starts are not covered.`}
                 </div>
               )}
             </div>

@@ -79,3 +79,88 @@ test('a plan with no duration is rejected', () => {
   assert.equal(computeRenewal({ durationDays: 0 }).ok, false);
   assert.equal(computeRenewal({ durationDays: undefined }).error, 'invalid_duration');
 });
+
+// --- computeRenewal: hand-picked start date -----------------------------
+// The desk can place the start itself (the member travels, or pays today and
+// begins next week). Whatever that costs the member must be reported, not
+// silently absorbed.
+
+test('a manual start date overrides the automatic one', () => {
+  const now = Date.UTC(2026, 5, 1);
+  const chosen = Date.UTC(2026, 5, 15);
+  const r = computeRenewal({ currentEndDateMs: null, durationDays: 30, nowMs: now, startOverrideMs: chosen });
+  assert.equal(r.startOverridden, true);
+  assert.equal(r.startMs, chosen);
+  assert.equal(r.endMs, chosen + 30 * DAY);
+});
+
+test('leaving the start blank keeps the automatic behaviour exactly', () => {
+  const now = Date.UTC(2026, 5, 1);
+  const end = now + 10 * DAY;
+  const auto = computeRenewal({ currentEndDateMs: end, durationDays: 30, nowMs: now });
+  const blank = computeRenewal({ currentEndDateMs: end, durationDays: 30, nowMs: now, startOverrideMs: null });
+  assert.equal(blank.startMs, auto.startMs);
+  assert.equal(blank.endMs, auto.endMs);
+  assert.equal(blank.carriedOverDays, auto.carriedOverDays);
+  assert.equal(blank.startOverridden, false);
+});
+
+test('starting BEFORE the current term ends forfeits the overlap', () => {
+  const now = Date.UTC(2026, 5, 1);
+  const end = now + 10 * DAY;          // 10 days still on the clock
+  const chosen = now + 4 * DAY;        // start 6 days early
+  const r = computeRenewal({ currentEndDateMs: end, durationDays: 30, nowMs: now, startOverrideMs: chosen });
+  assert.equal(r.startMs, chosen);
+  assert.equal(r.forfeitedDays, 6, 'the overlapped days are lost');
+  assert.equal(r.carriedOverDays, 4, 'only the days up to the new start survive');
+  assert.equal(r.gapDays, 0);
+});
+
+test('starting AFTER the current term ends leaves an uncovered gap', () => {
+  const now = Date.UTC(2026, 5, 1);
+  const end = now + 10 * DAY;
+  const chosen = end + 5 * DAY;
+  const r = computeRenewal({ currentEndDateMs: end, durationDays: 30, nowMs: now, startOverrideMs: chosen });
+  assert.equal(r.gapDays, 5);
+  assert.equal(r.forfeitedDays, 0);
+  assert.equal(r.carriedOverDays, 10, 'the current term still runs out naturally');
+});
+
+test('a manual start equal to the automatic one costs nothing', () => {
+  const now = Date.UTC(2026, 5, 1);
+  const end = now + 10 * DAY;
+  const r = computeRenewal({ currentEndDateMs: end, durationDays: 30, nowMs: now, startOverrideMs: end });
+  assert.equal(r.forfeitedDays, 0);
+  assert.equal(r.gapDays, 0);
+  assert.equal(r.carriedOverDays, 10);
+});
+
+test('a future start on an EXPIRED subscription is a gap, not a forfeit', () => {
+  const now = Date.UTC(2026, 5, 1);
+  const r = computeRenewal({
+    currentEndDateMs: Date.UTC(2026, 4, 1), durationDays: 30, nowMs: now,
+    startOverrideMs: now + 7 * DAY,
+  });
+  assert.equal(r.gapDays, 7);
+  assert.equal(r.forfeitedDays, 0);
+  assert.equal(r.carriedOverDays, 0);
+});
+
+test('backdating the start before today never reports negative days', () => {
+  const now = Date.UTC(2026, 5, 1);
+  const r = computeRenewal({
+    currentEndDateMs: now + 10 * DAY, durationDays: 30, nowMs: now,
+    startOverrideMs: now - 5 * DAY,
+  });
+  assert.equal(r.startMs, now - 5 * DAY);
+  assert.equal(r.gapDays, 0, 'a start in the past is not a gap');
+  assert.ok(r.carriedOverDays >= 0);
+  assert.equal(r.forfeitedDays, 15);
+});
+
+test('an unparseable start override falls back to automatic', () => {
+  const now = Date.UTC(2026, 5, 1);
+  const r = computeRenewal({ currentEndDateMs: null, durationDays: 30, nowMs: now, startOverrideMs: NaN });
+  assert.equal(r.startOverridden, false);
+  assert.equal(r.startMs, now);
+});

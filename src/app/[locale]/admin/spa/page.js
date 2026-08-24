@@ -11,7 +11,7 @@ import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments, addTenantDocument, updateTenantDocument } from '@/lib/firebase/firestore';
 import MemberPicker from '@/components/MemberPicker';
-import { nextSequentialNumber } from '@/lib/firebase/counters';
+import { nextInvoiceNumber } from '@/lib/firebase/invoices';
 import { useTenant } from '@/context/TenantContext';
 import { useSpaServices } from '@/lib/hooks/useSpaServices';
 import {
@@ -136,7 +136,7 @@ export default function SpaPage() {
         netAmount: bookForm.price,
         method: bookForm.paymentMethod,
         status: 'completed',
-        invoiceNumber: await nextSequentialNumber(tenantId, 'spa_invoices', 'SPA', bookings.length),
+        invoiceNumber: await nextInvoiceNumber(tenantId),
       });
 
       toast.success(isAr ? 'تم الحجز بنجاح' : 'Booking confirmed');

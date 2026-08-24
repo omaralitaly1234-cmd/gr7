@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { addTenantDocument, getTenantCollectionCount, getTenantDocuments, setDocument } from '@/lib/firebase/firestore';
 import { nextSequentialNumber } from '@/lib/firebase/counters';
+import { nextInvoiceNumber } from '@/lib/firebase/invoices';
 import { logAuditClient } from '@/lib/firebase/audit';
 import { useTenant } from '@/context/TenantContext';
 import { useMembershipPlans } from '@/lib/hooks/useMembershipPlans';
@@ -265,6 +266,7 @@ export default function NewMemberPage() {
               ? (isAr ? 'اشتراك جديد' : 'New subscription')
               : (isAr ? 'اشتراك جديد — دفعة مقدمة' : 'New subscription — down payment'),
             receivedBy: 'admin',
+            invoiceNumber: await nextInvoiceNumber(tenantId),
           });
         }
       }

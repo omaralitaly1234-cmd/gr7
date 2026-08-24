@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, getTenantDocumentsByIds } from '@/lib/firebase/firestore';
+import { getTenantDocuments, getTenantDocumentsByIds, clearReadCache } from '@/lib/firebase/firestore';
+import { authPost } from '@/lib/authenticated-fetch';
+import { needsInvoiceNumber } from '@/lib/invoice-number';
 import { useTenant } from '@/context/TenantContext';
+import toast from 'react-hot-toast';
 
 export default function InvoicesPage() {
   const t = useTranslations();
@@ -17,22 +20,74 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState([]);
   const [search, setSearch] = useState('');
+  const [numbering, setNumbering] = useState(false);
 
-  useEffect(() => {
-    async function loadData() {
-      if (!tenantId) { setLoading(false); return; }
-      try {
-        const { data: pays } = await getTenantDocuments(tenantId, 'payments', [],
-          { field: 'createdAt', direction: 'desc' }, 200);
-        setPayments(pays || []);
-        // Only the members referenced by the invoices on screen.
-        const memberMap = await getTenantDocumentsByIds(tenantId, 'members', (pays || []).map(p => p.memberId));
-        setMembers([...memberMap.values()]);
-      } catch (err) { console.error(err); }
-      setLoading(false);
-    }
-    loadData();
+  const loadData = useCallback(async () => {
+    if (!tenantId) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const { data: pays } = await getTenantDocuments(tenantId, 'payments', [],
+        { field: 'createdAt', direction: 'desc' }, 200);
+      setPayments(pays || []);
+      // Only the members referenced by the invoices on screen.
+      const memberMap = await getTenantDocumentsByIds(tenantId, 'members', (pays || []).map(p => p.memberId));
+      setMembers([...memberMap.values()]);
+    } catch (err) { console.error(err); }
+    setLoading(false);
   }, [tenantId]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // How many of the invoices ON THIS PAGE still have no serial. The server
+  // counts the whole collection when the button is pressed; this is only here
+  // to tell the admin whether pressing it is worth anything.
+  const unnumberedHere = payments.filter(needsInvoiceNumber).length;
+
+  /**
+   * Give every previously unnumbered invoice its place in the sequence.
+   * Only the payments desk and the spa used to number their rows, so every
+   * invoice from a new subscription or a renewal is blank until this runs.
+   */
+  const numberOldInvoices = async () => {
+    if (!tenantId || numbering) return;
+    setNumbering(true);
+    const toastId = toast.loading(isAr ? 'جاري ترقيم الفواتير…' : 'Numbering invoices…');
+    try {
+      const res = await authPost('/api/admin/invoices/backfill', { tenantId });
+      const result = await res.json().catch(() => ({}));
+
+      if (!res.ok || !result.success) {
+        toast.error(result.message || (isAr ? 'تعذّر ترقيم الفواتير' : 'Could not number the invoices'), { id: toastId });
+        setNumbering(false);
+        return;
+      }
+
+      if (result.numbered === 0) {
+        toast.success(isAr ? 'كل الفواتير مرقّمة بالفعل ✅' : 'Every invoice is already numbered ✅', { id: toastId });
+      } else {
+        toast.success(
+          isAr
+            ? `تم ترقيم ${result.numbered} فاتورة (${result.from} → ${result.to}) ✅`
+            : `Numbered ${result.numbered} invoices (${result.from} → ${result.to}) ✅`,
+          { id: toastId },
+        );
+      }
+      if (result.truncated) {
+        toast(isAr
+          ? 'فيه فواتير أقدم لسه من غير رقم — اضغط الزرار تاني.'
+          : 'Older invoices are still unnumbered — press the button again.');
+      }
+
+      // The numbers were written by the Admin SDK, so this client's read cache
+      // still holds the old rows.
+      clearReadCache();
+      loadData();
+    } catch (err) {
+      console.error('[Invoices] backfill failed:', err);
+      toast.error(err.message || (isAr ? 'حدث خطأ' : 'Error occurred'), { id: toastId });
+    }
+    setNumbering(false);
+  };
 
   const filtered = payments.filter(p => {
     if (!search) return true;
@@ -103,7 +158,24 @@ export default function InvoicesPage() {
     <div className="animate-fadeIn">
       <div className="page-header">
         <h1><span>🧾</span> {t('sidebar.invoices')}</h1>
+        <button className="btn btn-secondary" onClick={numberOldInvoices} disabled={numbering}
+          title={isAr ? 'يدي رقم تسلسلي لكل فاتورة قديمة من غير رقم' : 'Give every previously unnumbered invoice a serial'}>
+          {numbering ? '⏳' : '🔢'} {isAr ? 'ترقيم الفواتير القديمة' : 'Number old invoices'}
+        </button>
       </div>
+
+      {unnumberedHere > 0 && (
+        <div className="card" style={{
+          marginBottom: 'var(--space-5)', background: 'var(--pt-gold-glow)',
+          border: '1px solid rgba(245,197,24,0.3)',
+        }}>
+          <p style={{ fontSize: 'var(--font-size-sm)', margin: 0 }}>
+            💡 {isAr
+              ? `فيه ${unnumberedHere} فاتورة في الصفحة دي من غير رقم تسلسلي — دي فواتير اتسجّلت قبل ما الترقيم يشتغل على كل الشاشات. اضغط "ترقيم الفواتير القديمة" وهياخدوا أرقامهم بالترتيب من الأقدم للأحدث.`
+              : `${unnumberedHere} invoices on this page have no serial — they were recorded before numbering covered every screen. Press "Number old invoices" and they take their place in the sequence, oldest first.`}
+          </p>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 200, position: 'relative' }}>

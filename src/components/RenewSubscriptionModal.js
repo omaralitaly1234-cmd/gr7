@@ -17,6 +17,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { addTenantDocument, updateTenantDocument } from '@/lib/firebase/firestore';
+import { nextInvoiceNumber } from '@/lib/firebase/invoices';
 import { logAuditClient } from '@/lib/firebase/audit';
 import { useMembershipPlans } from '@/lib/hooks/useMembershipPlans';
 import { buildInstallmentSchedule, splitPayment } from '@/lib/installments';
@@ -173,6 +174,7 @@ export default function RenewSubscriptionModal({
             ? (isAr ? 'تجديد اشتراك' : 'Subscription renewal')
             : (isAr ? 'تجديد اشتراك — دفعة مقدمة' : 'Subscription renewal — down payment'),
           receivedBy: 'admin',
+          invoiceNumber: await nextInvoiceNumber(tenantId),
         });
         if (error) throw new Error(error);
       }

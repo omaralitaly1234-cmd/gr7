@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocuments, addTenantDocument, getTenantCollectionCount } from '@/lib/firebase/firestore';
-import { nextSequentialNumber } from '@/lib/firebase/counters';
+import { nextInvoiceNumber } from '@/lib/firebase/invoices';
 import { applyPaymentToMemberBalance } from '@/lib/firebase/balance';
 import { logAuditClient } from '@/lib/firebase/audit';
 import MemberPicker from '@/components/MemberPicker';
@@ -106,7 +106,7 @@ export default function PaymentsPage() {
         status: 'completed',
         notes: payForm.notes,
         receivedBy: 'admin',
-        invoiceNumber: await nextSequentialNumber(tenantId, 'invoices', 'INV', payments.length),
+        invoiceNumber: await nextInvoiceNumber(tenantId),
       });
 
       // If this member owes money, apply the payment to their outstanding

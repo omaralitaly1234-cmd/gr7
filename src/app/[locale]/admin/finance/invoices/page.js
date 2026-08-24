@@ -6,6 +6,10 @@ import { useParams } from 'next/navigation';
 import { getTenantDocuments, getTenantDocumentsByIds, clearReadCache } from '@/lib/firebase/firestore';
 import { authPost } from '@/lib/authenticated-fetch';
 import { needsInvoiceNumber } from '@/lib/invoice-number';
+import { paymentTypeLabel } from '@/lib/invoice-view';
+import { loadGymProfile } from '@/lib/firebase/gym-settings';
+import { gymName, gymAddress, DEFAULT_GYM_PROFILE } from '@/lib/gym-profile';
+import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
 import toast from 'react-hot-toast';
 
@@ -21,14 +25,18 @@ export default function InvoicesPage() {
   const [members, setMembers] = useState([]);
   const [search, setSearch] = useState('');
   const [numbering, setNumbering] = useState(false);
+  const [profile, setProfile] = useState(DEFAULT_GYM_PROFILE);
 
   const loadData = useCallback(async () => {
     if (!tenantId) { setLoading(false); return; }
     setLoading(true);
     try {
-      const { data: pays } = await getTenantDocuments(tenantId, 'payments', [],
-        { field: 'createdAt', direction: 'desc' }, 200);
+      const [{ data: pays }, gym] = await Promise.all([
+        getTenantDocuments(tenantId, 'payments', [], { field: 'createdAt', direction: 'desc' }, 200),
+        loadGymProfile(tenantId),
+      ]);
       setPayments(pays || []);
+      setProfile(gym);
       // Only the members referenced by the invoices on screen.
       const memberMap = await getTenantDocumentsByIds(tenantId, 'members', (pays || []).map(p => p.memberId));
       setMembers([...memberMap.values()]);
@@ -122,8 +130,10 @@ export default function InvoicesPage() {
       </head>
       <body>
         <div class="header">
-          <h1>⚡ Power Time</h1>
-          <p>${isAr ? 'أكتر من مجرد جيم' : 'More than a Gym'}</p>
+          <h1>⚡ ${esc(gymName(profile, locale))}</h1>
+          ${gymAddress(profile, locale) ? `<p>${esc(gymAddress(profile, locale))}</p>` : ''}
+          ${profile.phone ? `<p dir="ltr">📞 ${esc(profile.phone)}</p>` : ''}
+          ${profile.email ? `<p dir="ltr">📧 ${esc(profile.email)}</p>` : ''}
         </div>
         <div style="text-align:center;margin-bottom:12px;">
           <strong>${isAr ? 'فاتورة / إيصال' : 'Invoice / Receipt'}</strong><br/>
@@ -133,7 +143,7 @@ export default function InvoicesPage() {
           <div class="row"><span class="label">${isAr ? 'العضو' : 'Member'}</span><span class="value">${esc(pay.memberName || '-')}</span></div>
           <div class="row"><span class="label">${isAr ? 'رقم العضوية' : 'ID'}</span><span class="value">${esc(member?.membershipNumber || '-')}</span></div>
           <div class="row"><span class="label">${isAr ? 'التاريخ' : 'Date'}</span><span class="value">${pay.createdAt?.toDate ? pay.createdAt.toDate().toLocaleDateString(isAr ? 'ar-EG' : 'en-US') : '-'}</span></div>
-          <div class="row"><span class="label">${isAr ? 'النوع' : 'Type'}</span><span class="value">${esc(pay.type || '-')}</span></div>
+          <div class="row"><span class="label">${isAr ? 'النوع' : 'Type'}</span><span class="value">${esc(paymentTypeLabel(pay.type, locale))}</span></div>
           <div class="row"><span class="label">${isAr ? 'طريقة الدفع' : 'Method'}</span><span class="value">${pay.method === 'cash' ? (isAr ? 'كاش' : 'Cash') : pay.method === 'visa' ? (isAr ? 'فيزا' : 'Visa') : (isAr ? 'تحويل' : 'Transfer')}</span></div>
           <div class="row"><span class="label">${isAr ? 'المبلغ' : 'Amount'}</span><span class="value">${(pay.amount || 0).toLocaleString()} ${isAr ? 'ج.م' : 'EGP'}</span></div>
           ${pay.discount ? `<div class="row"><span class="label">${isAr ? 'الخصم' : 'Discount'}</span><span class="value" style="color:green">-${pay.discount.toLocaleString()} ${isAr ? 'ج.م' : 'EGP'}</span></div>` : ''}
@@ -145,8 +155,8 @@ export default function InvoicesPage() {
           </button>
         </div>
         <div class="footer">
-          <p>© 2026 Power Time — ${isAr ? 'جميع الحقوق محفوظة' : 'All rights reserved'}</p>
-          <p>${isAr ? 'شكراً لاختياركم Power Time' : 'Thank you for choosing Power Time'} ⚡</p>
+          <p>© ${new Date().getFullYear()} ${esc(gymName(profile, locale))} — ${isAr ? 'جميع الحقوق محفوظة' : 'All rights reserved'}</p>
+          <p>${isAr ? 'شكراً لاختياركم' : 'Thank you for choosing'} ${esc(gymName(profile, locale))} ⚡</p>
         </div>
       </body>
       </html>
@@ -210,7 +220,15 @@ export default function InvoicesPage() {
             ) : (
               filtered.map(pay => (
                 <tr key={pay.id}>
-                  <td><code style={{ color: 'var(--pt-gold)', background: 'var(--pt-gold-glow)', padding: '2px 8px', borderRadius: 4, fontSize: '11px' }}>{pay.invoiceNumber || '-'}</code></td>
+                  <td>
+                    {needsInvoiceNumber(pay) ? (
+                      <span className="badge badge-warning" style={{ fontSize: '10px' }}>
+                        {isAr ? 'من غير رقم' : 'unnumbered'}
+                      </span>
+                    ) : (
+                      <code dir="ltr" style={{ color: 'var(--pt-gold)', background: 'var(--pt-gold-glow)', padding: '2px 8px', borderRadius: 4, fontSize: '11px' }}>{pay.invoiceNumber}</code>
+                    )}
+                  </td>
                   <td style={{ fontWeight: 600 }}>{pay.memberName || '-'}</td>
                   <td><span className="badge badge-info" style={{ fontSize: '10px' }}>{pay.type}</span></td>
                   <td>{(pay.amount || 0).toLocaleString()} {t('common.egp')}</td>
@@ -218,7 +236,11 @@ export default function InvoicesPage() {
                   <td>{pay.method === 'cash' ? '💵' : pay.method === 'visa' ? '💳' : '🏦'} {t(`finance.${pay.method === 'bank_transfer' ? 'bankTransfer' : pay.method}`)}</td>
                   <td>{pay.createdAt?.toDate ? pay.createdAt.toDate().toLocaleDateString(isAr ? 'ar-EG' : 'en-US') : '-'}</td>
                   <td>
-                    <button className="btn btn-ghost btn-sm" onClick={() => handlePrint(pay)} title={t('finance.printReceipt')}>🖨️</button>
+                    <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+                      <Link href={`/${locale}/admin/finance/invoices/${pay.id}`} className="btn btn-ghost btn-sm"
+                        title={isAr ? 'عرض الفاتورة' : 'View invoice'}>👁️</Link>
+                      <button className="btn btn-ghost btn-sm" onClick={() => handlePrint(pay)} title={t('finance.printReceipt')}>🖨️</button>
+                    </div>
                   </td>
                 </tr>
               ))

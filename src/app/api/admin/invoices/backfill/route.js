@@ -16,6 +16,7 @@ import {
   formatInvoiceNumber, highestInvoiceSeq, needsInvoiceNumber, planInvoiceBackfill,
   INVOICE_COUNTER_KEY,
 } from '@/lib/invoice-number';
+import { normalizeInvoicePrefix, SETTINGS_COLLECTION, SETTINGS_DOC_ID } from '@/lib/gym-profile';
 
 // A guard against an unbounded read, not a real expectation. Reported back when
 // it bites so a truncated run is never mistaken for a complete one.
@@ -58,6 +59,13 @@ export async function POST(request) {
         { status: 403 }
       );
     }
+
+    // The gym's own serial prefix, so a backfilled invoice looks like the ones
+    // the desk prints rather than a different series.
+    const settingsSnap = await adminDb
+      .doc(`tenants/${tenantId}/${SETTINGS_COLLECTION}/${SETTINGS_DOC_ID}`).get();
+    const prefix = normalizeInvoicePrefix(
+      settingsSnap.exists ? settingsSnap.data().invoicePrefix : null);
 
     // Oldest first, so the serials follow the order the money actually came in.
     // `select` keeps this to the two fields that matter instead of pulling
@@ -102,7 +110,7 @@ export async function POST(request) {
       for (const [j, pay] of missing.slice(i, i + BATCH_SIZE).entries()) {
         const paidAt = pay.createdAt?.toDate ? pay.createdAt.toDate() : new Date();
         batch.update(adminDb.doc(`tenants/${tenantId}/payments/${pay.id}`), {
-          invoiceNumber: formatInvoiceNumber(firstSeq + i + j, paidAt.getFullYear()),
+          invoiceNumber: formatInvoiceNumber(firstSeq + i + j, paidAt.getFullYear(), prefix),
           invoiceNumberBackfilled: true,
         });
         written += 1;
@@ -132,8 +140,8 @@ export async function POST(request) {
       numbered: written,
       alreadyNumbered: all.length - missing.length,
       total: all.length,
-      from: formatInvoiceNumber(firstSeq),
-      to: formatInvoiceNumber(firstSeq + written - 1),
+      from: formatInvoiceNumber(firstSeq, undefined, prefix),
+      to: formatInvoiceNumber(firstSeq + written - 1, undefined, prefix),
       truncated,
     });
   } catch (error) {

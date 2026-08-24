@@ -11,7 +11,8 @@
 
 import { getTenantCollectionCount } from './firestore';
 import { nextSequentialNumber } from './counters';
-import { INVOICE_COUNTER_KEY, INVOICE_PREFIX } from '@/lib/invoice-number';
+import { loadGymProfile } from './gym-settings';
+import { INVOICE_COUNTER_KEY } from '@/lib/invoice-number';
 
 /**
  * Reserve the next invoice serial for a tenant, atomically.
@@ -28,8 +29,13 @@ import { INVOICE_COUNTER_KEY, INVOICE_PREFIX } from '@/lib/invoice-number';
 export async function nextInvoiceNumber(tenantId) {
   if (!tenantId) return null;
   try {
-    const { count } = await getTenantCollectionCount(tenantId, 'payments');
-    return await nextSequentialNumber(tenantId, INVOICE_COUNTER_KEY, INVOICE_PREFIX, count || 0);
+    // The prefix is the gym's own (admin/settings → "بادئة الفاتورة"), which
+    // until now was a field that saved and then did nothing.
+    const [{ count }, profile] = await Promise.all([
+      getTenantCollectionCount(tenantId, 'payments'),
+      loadGymProfile(tenantId),
+    ]);
+    return await nextSequentialNumber(tenantId, INVOICE_COUNTER_KEY, profile.invoicePrefix, count || 0);
   } catch (err) {
     console.error('[invoices] could not allocate an invoice number:', err);
     return null;

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { getTenantDocument, updateTenantDocument, addTenantDocument } from '@/lib/firebase/firestore';
+import { clearGymProfileCache } from '@/lib/firebase/gym-settings';
 import { useTenant } from '@/context/TenantContext';
 import toast from 'react-hot-toast';
 
@@ -54,11 +55,15 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       await updateTenantDocument(tenantId, 'config', 'settings', settings);
+      // The invoice header and the serial prefix read these — drop the memo so
+      // the very next invoice picks the change up.
+      clearGymProfileCache(tenantId);
       toast.success(t('common.success'));
     } catch (err) {
       // If document doesn't exist, create it
       try {
         await addTenantDocument(tenantId, 'config', { ...settings, id: 'settings' });
+        clearGymProfileCache(tenantId);
         toast.success(t('common.success'));
       } catch (err2) {
         toast.error(t('common.error'));
@@ -234,10 +239,20 @@ export default function SettingsPage() {
             <div className="form-group">
               <label className="form-label">{isAr ? 'نسبة الضريبة %' : 'Tax Rate %'}</label>
               <input className="form-input" type="number" dir="ltr" value={settings.taxRate} onChange={e => handleChange('taxRate', Number(e.target.value))} min={0} max={100} />
+              <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>
+                {isAr
+                  ? 'بتتحسب كضريبة شاملة جوه المبلغ المدفوع، وبتظهر مفصولة في الفاتورة. سيبها 0 لو مش بتفوتر ضريبة.'
+                  : 'Treated as tax included in the amount paid, and broken out on the invoice. Leave at 0 if you do not invoice tax.'}
+              </small>
             </div>
             <div className="form-group">
               <label className="form-label">{isAr ? 'بادئة الفاتورة' : 'Invoice Prefix'}</label>
               <input className="form-input" dir="ltr" value={settings.invoicePrefix} onChange={e => handleChange('invoicePrefix', e.target.value)} />
+              <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>
+                {isAr
+                  ? 'حروف إنجليزية بس — الفاتورة الجاية هتبقى مثلاً INV-2026-0001.'
+                  : 'Letters only — the next invoice will read e.g. INV-2026-0001.'}
+              </small>
             </div>
           </div>
         </div>

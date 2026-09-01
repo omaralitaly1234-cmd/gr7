@@ -48,6 +48,8 @@ _db-backups/
 # Member import artefacts — these contain member PII and PLAINTEXT PASSWORDS.
 # Never commit them.
 member-credentials.*
+member-credentials-*
+scripts/delta.json
 imported-codes.json
 active_output.txt
 expired_output.txt

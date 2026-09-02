@@ -155,19 +155,25 @@ export default function AttendanceScannerPage() {
       activeSubId = activeSubs?.[0]?.id || null;
     }
 
-    // Atomic check-in: a deterministic per-day attendance doc id makes the
-    // "already checked in today" guard, the session decrement, and the visit
-    // counter one transaction — so a rapid double-scan can't create two
-    // attendance rows or double-deduct a session.
+    // Atomic check-in with up to TWO slots per day (morning + evening). Slot 1
+    // uses the legacy id `{memberId}_{dateStr}` so older records keep working;
+    // slot 2 uses `{memberId}_{dateStr}_2`. Reading both by id keeps this in a
+    // transaction — a rapid double-scan still can't create three rows or
+    // double-deduct a session on the same slot.
     const dateStr = new Date().toISOString().split('T')[0];
-    const attendanceRef = doc(db, `tenants/${tenantId}/attendance/${member.id}_${dateStr}`);
+    const slot1Ref = doc(db, `tenants/${tenantId}/attendance/${member.id}_${dateStr}`);
+    const slot2Ref = doc(db, `tenants/${tenantId}/attendance/${member.id}_${dateStr}_2`);
     const memberRef = doc(db, `tenants/${tenantId}/members/${member.id}`);
     const subRef = activeSubId ? doc(db, `tenants/${tenantId}/subscriptions/${activeSubId}`) : null;
 
+    let attendanceRef = slot1Ref;
+    let visitSlot = 1;
+
     try {
       await runTransaction(db, async (tx) => {
-        const attSnap = await tx.get(attendanceRef);
-        if (attSnap.exists()) throw new Error('already_checked_in');
+        const [slot1Snap, slot2Snap] = await Promise.all([tx.get(slot1Ref), tx.get(slot2Ref)]);
+        if (slot1Snap.exists() && slot2Snap.exists()) throw new Error('already_checked_in_twice');
+        if (slot1Snap.exists()) { attendanceRef = slot2Ref; visitSlot = 2; }
 
         let sessionDeducted = false;
         if (subRef) {
@@ -192,6 +198,7 @@ export default function AttendanceScannerPage() {
           subscriptionId: activeSubId || member.currentPlan?.planId || '',
           subscriptionStatus: member.status,
           sessionDeducted,
+          visitSlot,
           createdAt: Timestamp.fromDate(new Date()),
           updatedAt: Timestamp.fromDate(new Date()),
         });
@@ -201,8 +208,8 @@ export default function AttendanceScannerPage() {
         });
       });
     } catch (err) {
-      if (err.message === 'already_checked_in') {
-        setScanResult(t('attendance.alreadyCheckedIn'));
+      if (err.message === 'already_checked_in_twice') {
+        setScanResult(t('attendance.alreadyCheckedInTwice'));
         setResultType('warning');
         return;
       }
@@ -224,10 +231,11 @@ export default function AttendanceScannerPage() {
     // The history query was issued before this check-in existed — fold today's
     // visit in rather than paying for a second read.
     const nowTs = Timestamp.fromDate(new Date());
+    const newAttId = visitSlot === 2 ? `${member.id}_${dateStr}_2` : `${member.id}_${dateStr}`;
     setMemberHistory(prev => (
-      prev.some(a => a.id === `${member.id}_${dateStr}`)
+      prev.some(a => a.id === newAttId)
         ? prev
-        : [{ id: `${member.id}_${dateStr}`, memberId: member.id, checkIn: nowTs }, ...prev]
+        : [{ id: newAttId, memberId: member.id, checkIn: nowTs, visitSlot }, ...prev]
     ));
     setMemberData(prev => (prev ? { ...prev, totalVisits: (prev.totalVisits || 0) + 1, lastVisit: nowTs } : prev));
 

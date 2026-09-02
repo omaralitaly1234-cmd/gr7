@@ -27,6 +27,12 @@ export default function MembersPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [counts, setCounts] = useState({ total: 0, active: 0, expired: 0, frozen: 0 });
   const [showDeleteModal, setShowDeleteModal] = useState(null);
+  // Inline row edit: id of the row being edited, plus the working values.
+  // Only the two fields the desk actually fixes on the fly — name (ar) and
+  // phone — are editable here; the full edit page still owns everything else.
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editDraft, setEditDraft] = useState({ fullNameAr: '', phone: '' });
+  const [savingRow, setSavingRow] = useState(false);
 
   // Server-side paging cursors. pageStack[i] is the Firestore doc to start
   // page i after; index 0 is the first page (no cursor).
@@ -159,6 +165,54 @@ export default function MembersPage() {
     return map[status] || { class: 'badge-info', label: status };
   };
 
+  const startInlineEdit = (member) => {
+    setEditingRowId(member.id);
+    setEditDraft({
+      fullNameAr: member.fullName?.ar || '',
+      phone: member.phone || '',
+    });
+  };
+
+  const cancelInlineEdit = () => {
+    setEditingRowId(null);
+    setEditDraft({ fullNameAr: '', phone: '' });
+  };
+
+  const saveInlineEdit = async (member) => {
+    if (!tenantId || !member?.id) return;
+    const nameAr = (editDraft.fullNameAr || '').trim();
+    const phone = (editDraft.phone || '').trim();
+    if (!nameAr || !phone) return;
+
+    setSavingRow(true);
+    try {
+      const updated = {
+        // Keep the English name aligned with Arabic when there's no explicit
+        // English variant — mirrors what the full edit page does.
+        fullName: {
+          ...(member.fullName || {}),
+          ar: nameAr,
+          en: member.fullName?.en || nameAr,
+        },
+        phone,
+        // Only overwrite whatsapp when it was defaulting to the old phone.
+        ...(member.whatsapp === member.phone || !member.whatsapp ? { whatsapp: phone } : {}),
+      };
+      const { error } = await updateTenantDocument(tenantId, 'members', member.id, updated);
+      if (error) throw new Error(error);
+
+      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, ...updated } : m));
+      logAuditClient({
+        action: 'update', entity: 'member', entityId: member.id, tenantId,
+        details: { description: { en: 'Inline edit (name/phone)', ar: 'تعديل سريع (اسم/هاتف)' } },
+      });
+      cancelInlineEdit();
+    } catch (err) {
+      console.error('Inline save failed:', err);
+    }
+    setSavingRow(false);
+  };
+
   const handleDelete = async (memberId) => {
     if (!tenantId) return;
     // Soft-delete: archive the member and cancel their active/frozen
@@ -289,23 +343,55 @@ export default function MembersPage() {
             ) : (
               filteredMembers.map((member, index) => {
                 const statusInfo = getStatusBadge(member.status);
+                const isEditing = editingRowId === member.id;
+                const canSave = (editDraft.fullNameAr || '').trim() && (editDraft.phone || '').trim();
                 return (
-                  <tr key={member.id}>
+                  <tr key={member.id} style={isEditing ? { background: 'var(--pt-gold-glow)' } : undefined}>
                     <td style={{ color: 'var(--pt-gray-500)' }}>{index + 1}</td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
                         <div className={styles.memberAvatar}>
                           {(member.fullName[locale] || member.fullName.ar).charAt(0)}
                         </div>
-                        <div>
-                          <div style={{ fontWeight: 600 }}>{member.fullName[locale] || member.fullName.ar}</div>
-                          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>
-                            {member.gender === 'male' ? '♂' : '♀'} {t(`common.${member.gender}`)}
+                        {isEditing ? (
+                          <input
+                            className="form-input"
+                            type="text"
+                            value={editDraft.fullNameAr}
+                            onChange={e => setEditDraft(d => ({ ...d, fullNameAr: e.target.value }))}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && canSave) saveInlineEdit(member);
+                              if (e.key === 'Escape') cancelInlineEdit();
+                            }}
+                            autoFocus
+                            style={{ minWidth: 160 }}
+                          />
+                        ) : (
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{member.fullName[locale] || member.fullName.ar}</div>
+                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>
+                              {member.gender === 'male' ? '♂' : '♀'} {t(`common.${member.gender}`)}
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     </td>
-                    <td dir="ltr" style={{ fontFamily: 'var(--font-en)' }}>{member.phone}</td>
+                    <td dir="ltr" style={{ fontFamily: 'var(--font-en)' }}>
+                      {isEditing ? (
+                        <input
+                          className="form-input"
+                          type="tel"
+                          dir="ltr"
+                          value={editDraft.phone}
+                          onChange={e => setEditDraft(d => ({ ...d, phone: e.target.value }))}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && canSave) saveInlineEdit(member);
+                            if (e.key === 'Escape') cancelInlineEdit();
+                          }}
+                          style={{ minWidth: 140 }}
+                        />
+                      ) : member.phone}
+                    </td>
                     <td><code className={styles.memberCode}>{member.membershipNumber}</code></td>
                     <td>
                       <span className={`badge ${(member.planName || member.currentPlan?.type || '').includes('diamond') || (member.planName || '').includes('ماسي') ? 'badge-diamond' : 'badge-gold'}`}>
@@ -325,17 +411,45 @@ export default function MembersPage() {
                     </td>
                     <td style={{ fontWeight: 600, color: 'var(--pt-gold)' }}>{member.totalVisits}</td>
                     <td>
-                      <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                        <Link href={`/${locale}/admin/members/${member.id}`} className="btn btn-ghost btn-sm" title={t('common.details')}>
-                          👁️
-                        </Link>
-                        <Link href={`/${locale}/admin/members/${member.id}/edit`} className="btn btn-ghost btn-sm" title={t('common.edit')}>
-                          ✏️
-                        </Link>
-                        <button className="btn btn-ghost btn-sm" onClick={() => setShowDeleteModal(member.id)} title={t('common.delete')} style={{ color: 'var(--pt-danger)' }}>
-                          🗑️
-                        </button>
-                      </div>
+                      {isEditing ? (
+                        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => saveInlineEdit(member)}
+                            disabled={savingRow || !canSave}
+                            title={t('common.save')}
+                          >
+                            {savingRow ? '⏳' : '✅'}
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={cancelInlineEdit}
+                            disabled={savingRow}
+                            title={t('common.cancel')}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                          <Link href={`/${locale}/admin/members/${member.id}`} className="btn btn-ghost btn-sm" title={t('common.details')}>
+                            👁️
+                          </Link>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => startInlineEdit(member)}
+                            title={locale === 'ar' ? 'تعديل سريع (اسم/هاتف)' : 'Quick edit (name/phone)'}
+                          >
+                            ⚡
+                          </button>
+                          <Link href={`/${locale}/admin/members/${member.id}/edit`} className="btn btn-ghost btn-sm" title={t('common.edit')}>
+                            ✏️
+                          </Link>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setShowDeleteModal(member.id)} title={t('common.delete')} style={{ color: 'var(--pt-danger)' }}>
+                            🗑️
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

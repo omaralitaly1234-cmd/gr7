@@ -27,6 +27,10 @@ export default function AttendanceLogsPage() {
   const [genderFilter, setGenderFilter] = useState('all');
   const [todayCount, setTodayCount] = useState(0);
   const [weekCount, setWeekCount] = useState(0);
+  // deleteTarget: { candidates: [attendanceDoc, ...], selectedId }
+  // When a member has two visits on the same day, both are shown here so the
+  // desk can pick which one to remove — the two rows can look very similar in
+  // the table and the wrong one is easy to click.
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -73,6 +77,31 @@ export default function AttendanceLogsPage() {
     if (genderFilter !== 'all' && a.gender !== genderFilter) return false;
     return true;
   });
+
+  // Open the delete dialog for a clicked row. If the same member has another
+  // visit on the same day (slot 1 + slot 2), both are offered as candidates so
+  // the desk can be explicit about which one they mean.
+  const openDeleteFor = (att) => {
+    const day = att.checkIn?.toDate ? att.checkIn.toDate() : null;
+    const dayStart = day ? new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime() : null;
+    const dayEnd = day ? dayStart + 24 * 60 * 60 * 1000 : null;
+    const candidates = attendance
+      .filter(a => a.memberId && a.memberId === att.memberId)
+      .filter(a => {
+        if (!dayStart) return a.id === att.id;
+        const ts = a.checkIn?.toDate ? a.checkIn.toDate().getTime() : null;
+        return ts !== null && ts >= dayStart && ts < dayEnd;
+      })
+      .sort((a, b) => {
+        const ta = a.checkIn?.toDate ? a.checkIn.toDate().getTime() : 0;
+        const tb = b.checkIn?.toDate ? b.checkIn.toDate().getTime() : 0;
+        return ta - tb;
+      });
+    setDeleteTarget({
+      candidates: candidates.length ? candidates : [att],
+      selectedId: att.id,
+    });
+  };
 
   // Delete an attendance record. If the check-in had deducted a session from
   // an active subscription, put that session back — otherwise the delete would
@@ -253,7 +282,7 @@ export default function AttendanceLogsPage() {
                         <button
                           type="button"
                           className="btn btn-ghost btn-sm"
-                          onClick={() => setDeleteTarget(att)}
+                          onClick={() => openDeleteFor(att)}
                           title={t('attendance.deleteAttendance')}
                           style={{ color: 'var(--pt-danger)' }}
                         >
@@ -269,37 +298,99 @@ export default function AttendanceLogsPage() {
         </table>
       </div>
 
-      {deleteTarget && (
-        <div className="modal-overlay" onClick={() => !deleting && setDeleteTarget(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
-            <div className="modal-header">
-              <h2>🗑️ {t('attendance.deleteAttendance')}</h2>
-              <button onClick={() => !deleting && setDeleteTarget(null)} style={{ fontSize: '1.2rem' }} disabled={deleting}>✕</button>
-            </div>
-            <div className="modal-body" style={{ textAlign: 'center' }}>
-              <p style={{ marginBottom: 'var(--space-3)', fontWeight: 600 }}>
-                {deleteTarget.memberName}
-              </p>
-              <p style={{ marginBottom: 'var(--space-2)' }}>
-                {t('attendance.confirmDeleteAttendance')}
-              </p>
-              {deleteTarget.sessionDeducted && (
-                <p style={{ color: 'var(--pt-success)', fontSize: 'var(--font-size-sm)' }}>
-                  {isAr ? '↩ هيتم إرجاع الحصة للاشتراك' : '↩ The session will be restored to the subscription'}
+      {deleteTarget && (() => {
+        const selected = deleteTarget.candidates.find(c => c.id === deleteTarget.selectedId)
+          || deleteTarget.candidates[0];
+        const memberName = selected?.memberName || '';
+        const multi = deleteTarget.candidates.length > 1;
+        return (
+          <div className="modal-overlay" onClick={() => !deleting && setDeleteTarget(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+              <div className="modal-header">
+                <h2>🗑️ {t('attendance.deleteAttendance')}</h2>
+                <button onClick={() => !deleting && setDeleteTarget(null)} style={{ fontSize: '1.2rem' }} disabled={deleting}>✕</button>
+              </div>
+              <div className="modal-body">
+                <p style={{ marginBottom: 'var(--space-3)', fontWeight: 600, textAlign: 'center' }}>
+                  {memberName}
                 </p>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)} disabled={deleting}>
-                {t('common.cancel')}
-              </button>
-              <button className="btn btn-danger" onClick={() => handleDelete(deleteTarget)} disabled={deleting}>
-                {deleting ? (isAr ? '... جاري الحذف' : 'Deleting...') : t('common.delete')}
-              </button>
+
+                {multi ? (
+                  <>
+                    <p style={{ marginBottom: 'var(--space-3)', color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)' }}>
+                      {isAr
+                        ? 'العضو ده عنده أكتر من زيارة في نفس اليوم — اختار أنهي واحدة تحذفها:'
+                        : 'This member has more than one visit on the same day — pick which one to delete:'}
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                      {deleteTarget.candidates.map((c, idx) => {
+                        const t0 = c.checkIn?.toDate ? c.checkIn.toDate() : null;
+                        const isSel = c.id === deleteTarget.selectedId;
+                        return (
+                          <label key={c.id}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                              padding: 'var(--space-3)', borderRadius: 'var(--radius-sm)',
+                              background: isSel ? 'var(--pt-gold-glow)' : 'var(--pt-darker)',
+                              border: `1px solid ${isSel ? 'var(--pt-gold)' : 'var(--glass-border)'}`,
+                              cursor: 'pointer',
+                            }}>
+                            <input
+                              type="radio"
+                              name="del-att"
+                              checked={isSel}
+                              disabled={deleting}
+                              onChange={() => setDeleteTarget(prev => prev ? { ...prev, selectedId: c.id } : prev)}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600 }}>
+                                {isAr ? 'زيارة' : 'Visit'} {idx + 1}
+                                {c.visitSlot === 2 && (
+                                  <span className="badge badge-info" style={{ marginInlineStart: 6, fontSize: 10 }}>
+                                    {t('attendance.visit')} 2
+                                  </span>
+                                )}
+                              </div>
+                              <div dir="ltr" style={{ fontSize: 'var(--font-size-sm)', color: 'var(--pt-gray-400)', fontFamily: 'var(--font-en)' }}>
+                                {t0 ? t0.toLocaleTimeString(isAr ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                                {' · '}
+                                {c.method === 'qr_scan' ? '📱 QR' : '✍️'}
+                              </div>
+                            </div>
+                            {c.sessionDeducted && (
+                              <span className="badge badge-success" style={{ fontSize: 10 }}>
+                                {isAr ? '−1 حصة' : '−1 session'}
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <p style={{ marginBottom: 'var(--space-2)', textAlign: 'center' }}>
+                    {t('attendance.confirmDeleteAttendance')}
+                  </p>
+                )}
+
+                {selected?.sessionDeducted && (
+                  <p style={{ color: 'var(--pt-success)', fontSize: 'var(--font-size-sm)', textAlign: 'center', marginTop: 'var(--space-3)' }}>
+                    {isAr ? '↩ الحصة اللي اتخصمت هترجع للاشتراك' : '↩ The deducted session will be restored to the subscription'}
+                  </p>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+                  {t('common.cancel')}
+                </button>
+                <button className="btn btn-danger" onClick={() => selected && handleDelete(selected)} disabled={deleting || !selected}>
+                  {deleting ? (isAr ? '... جاري الحذف' : 'Deleting...') : t('common.delete')}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

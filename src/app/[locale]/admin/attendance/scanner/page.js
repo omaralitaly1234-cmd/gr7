@@ -138,11 +138,22 @@ export default function AttendanceScannerPage() {
     // instead, and self-heal member.status when it disagrees. This is what
     // caused check-ins to be shown as "expired" for members whose renewal was
     // clearly still valid.
+    // Two-equality query — no orderBy on purpose. Adding an orderBy needs a
+    // composite index that isn't deployed, and without it the query silently
+    // returns empty and the member gets mislabelled as expired. Members
+    // typically have one active sub (occasionally two when renewed early);
+    // pick the latest by endDate client-side.
     const { data: activeSubs } = await getTenantDocuments(tenantId, 'subscriptions', [
       { field: 'memberId', operator: '==', value: member.id },
       { field: 'status', operator: '==', value: 'active' },
-    ], { field: 'endDate', direction: 'desc' }, 1);
-    const activeSub = activeSubs?.[0] || null;
+    ]);
+    const activeSub = (activeSubs || [])
+      .slice()
+      .sort((a, b) => {
+        const ae = a.endDate?.toDate ? a.endDate.toDate().getTime() : 0;
+        const be = b.endDate?.toDate ? b.endDate.toDate().getTime() : 0;
+        return be - ae;
+      })[0] || null;
     const activeEnd = activeSub?.endDate?.toDate ? activeSub.endDate.toDate() : null;
     const hasValidActive = !!(activeSub && activeEnd && activeEnd.getTime() > Date.now());
 

@@ -90,28 +90,28 @@ export default function AttendanceLogsPage() {
         : null;
 
       await runTransaction(db, async (tx) => {
+        // Firestore transactions require every read to happen before any write.
+        // Doing tx.update on the subscription and then tx.get on the member
+        // threw on session-plan deletes — worse on days with two visits, since
+        // both rows have sessionDeducted=true so both triggered the bad path.
         const attSnap = await tx.get(attRef);
         if (!attSnap.exists()) return;
+        const subSnap = subRef ? await tx.get(subRef) : null;
+        const memberSnap = memberRef ? await tx.get(memberRef) : null;
 
-        if (subRef) {
-          const subSnap = await tx.get(subRef);
-          if (subSnap.exists()) {
-            const sub = subSnap.data();
-            if (sub.totalSessions !== null && sub.totalSessions !== undefined) {
-              tx.update(subRef, {
-                usedSessions: Math.max(0, (sub.usedSessions || 0) - 1),
-                remainingSessions: (sub.remainingSessions || 0) + 1,
-              });
-            }
+        if (subSnap?.exists()) {
+          const sub = subSnap.data();
+          if (sub.totalSessions !== null && sub.totalSessions !== undefined) {
+            tx.update(subRef, {
+              usedSessions: Math.max(0, (sub.usedSessions || 0) - 1),
+              remainingSessions: (sub.remainingSessions || 0) + 1,
+            });
           }
         }
 
-        if (memberRef) {
-          const memberSnap = await tx.get(memberRef);
-          if (memberSnap.exists()) {
-            const cur = memberSnap.data().totalVisits || 0;
-            tx.update(memberRef, { totalVisits: Math.max(0, cur - 1) });
-          }
+        if (memberSnap?.exists()) {
+          const cur = memberSnap.data().totalVisits || 0;
+          tx.update(memberRef, { totalVisits: Math.max(0, cur - 1) });
         }
 
         tx.delete(attRef);

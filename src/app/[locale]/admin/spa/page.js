@@ -9,22 +9,24 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, addTenantDocument, updateTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments, addTenantDocument, updateTenantDocument, deleteTenantDocument } from '@/lib/firebase/firestore';
 import MemberPicker from '@/components/MemberPicker';
 import { nextInvoiceNumber } from '@/lib/firebase/invoices';
 import { useTenant } from '@/context/TenantContext';
 import { useSpaServices } from '@/lib/hooks/useSpaServices';
 import {
-  createTenantSpaService, updateTenantSpaService, deleteTenantSpaService,
+  createTenantSpaService, updateTenantSpaService, deleteTenantSpaService as deleteSpaSvc,
 } from '@/lib/firebase/spa-services-store';
 import { spaServiceErrorMessage, DEFAULT_SPA_ICON } from '@/lib/spa-services';
 import { logAuditClient } from '@/lib/firebase/audit';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, increment } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
 const EMPTY_SERVICE = {
   icon: DEFAULT_SPA_ICON, nameAr: '', nameEn: '', price: '', duration: 60, sessions: '', active: true,
 };
+
+const EMPTY_EXTERNAL = { name: '', phone: '', notes: '' };
 
 export default function SpaPage() {
   const t = useTranslations();
@@ -37,10 +39,25 @@ export default function SpaPage() {
   const [loading, setLoading] = useState(true);
   const [showBooking, setShowBooking] = useState(false);
   const [dateFilter, setDateFilter] = useState('today');
+  // The booking form serves both a gym member and a walk-in external client;
+  // clientType steers which fields are used on submit. External clients are
+  // stored in their own collection so the same person doesn't need to be
+  // re-typed on every visit — pick from the dropdown, or add a new one.
   const [bookForm, setBookForm] = useState({
-    memberId: '', member: null, serviceId: '', duration: 60, price: 0, notes: '',
+    clientType: 'member', // 'member' | 'external'
+    memberId: '', member: null,
+    externalClientId: '', externalName: '', externalPhone: '',
+    serviceId: '', duration: 60, price: 0, notes: '',
     scheduledTime: '', paymentMethod: 'cash',
   });
+
+  // External clients — non-members who use the spa (walk-ins, guests of members).
+  const [externals, setExternals] = useState([]);
+  const [externalsLoading, setExternalsLoading] = useState(true);
+  const [editingExternal, setEditingExternal] = useState(null); // doc id, or 'new'
+  const [externalForm, setExternalForm] = useState(EMPTY_EXTERNAL);
+  const [savingExternal, setSavingExternal] = useState(false);
+  const [confirmDeleteExternal, setConfirmDeleteExternal] = useState(null);
 
   // The gym's catalogue. `includeInactive` so the management grid can show a
   // hidden service; the booking dropdown filters them back out.
@@ -54,6 +71,18 @@ export default function SpaPage() {
   const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => { loadData(); }, [tenantId, dateFilter]);
+  useEffect(() => { loadExternals(); }, [tenantId]);
+
+  const loadExternals = async () => {
+    if (!tenantId) { setExternalsLoading(false); return; }
+    setExternalsLoading(true);
+    try {
+      const { data } = await getTenantDocuments(tenantId, 'spa_external_clients', [],
+        { field: 'lastVisitAt', direction: 'desc' }, 200);
+      setExternals(data || []);
+    } catch (err) { console.error('loadExternals:', err); }
+    setExternalsLoading(false);
+  };
 
   // Keep the booking form pointed at a service that still exists — the admin
   // may have just renamed, hidden or deleted the one it was holding.
@@ -106,15 +135,65 @@ export default function SpaPage() {
   };
 
   const handleBook = async () => {
-    if (!tenantId || !bookForm.memberId || !bookForm.serviceId) return;
+    if (!tenantId || !bookForm.serviceId) return;
+    const isExternal = bookForm.clientType === 'external';
+
+    // Validate whichever branch we're using and short-circuit early so the
+    // Firestore write isn't reached with a half-empty booking.
+    if (isExternal) {
+      const hasExisting = !!bookForm.externalClientId;
+      const hasNewName = (bookForm.externalName || '').trim().length > 0;
+      if (!hasExisting && !hasNewName) return;
+    } else if (!bookForm.memberId) {
+      return;
+    }
+
     try {
-      // The picker hands us the full member doc, so no lookup list is needed.
-      const member = bookForm.member;
       const service = serviceById.get(bookForm.serviceId);
 
+      // Resolve the client — either a gym member or an external. New external
+      // clients get created here first so the booking can point at a real id;
+      // existing externals are looked up by id.
+      let clientName = '';
+      let clientId = '';
+      let externalRef = null;
+
+      if (isExternal) {
+        if (bookForm.externalClientId) {
+          const existing = externals.find(x => x.id === bookForm.externalClientId);
+          clientName = existing?.name || '';
+          clientId = bookForm.externalClientId;
+          externalRef = bookForm.externalClientId;
+        } else {
+          const newName = bookForm.externalName.trim();
+          const { id, error } = await addTenantDocument(tenantId, 'spa_external_clients', {
+            name: newName,
+            phone: (bookForm.externalPhone || '').trim(),
+            notes: '',
+            visits: 0,
+            totalSpent: 0,
+            createdAt: Timestamp.fromDate(new Date()),
+            lastVisitAt: null,
+          });
+          if (error) throw new Error(error);
+          clientName = newName;
+          clientId = id;
+          externalRef = id;
+        }
+      } else {
+        const member = bookForm.member;
+        clientName = member?.fullName?.[locale] || member?.fullName?.ar || '';
+        clientId = bookForm.memberId;
+      }
+
       await addTenantDocument(tenantId, 'spa_bookings', {
-        memberId: bookForm.memberId,
-        memberName: member?.fullName?.[locale] || member?.fullName?.ar || '',
+        // For members this stays a real member id (dashboards keying on
+        // memberId still work); external walk-ins carry an empty memberId and
+        // an externalClientId instead so finance reports can tell them apart.
+        memberId: isExternal ? '' : clientId,
+        externalClientId: isExternal ? externalRef : null,
+        clientType: isExternal ? 'external' : 'member',
+        memberName: clientName,
         serviceId: bookForm.serviceId,
         serviceName: service?.name?.[locale] || service?.name?.ar || '',
         serviceIcon: service?.icon || DEFAULT_SPA_ICON,
@@ -126,10 +205,13 @@ export default function SpaPage() {
         paymentMethod: bookForm.paymentMethod,
       });
 
-      // Also record payment
+      // Payment record — same shape whether member or external; a downstream
+      // filter on clientType/externalClientId can split the two.
       await addTenantDocument(tenantId, 'payments', {
-        memberId: bookForm.memberId,
-        memberName: member?.fullName?.[locale] || member?.fullName?.ar || '',
+        memberId: isExternal ? '' : clientId,
+        externalClientId: isExternal ? externalRef : null,
+        clientType: isExternal ? 'external' : 'member',
+        memberName: clientName,
         type: 'spa',
         amount: bookForm.price,
         discount: 0,
@@ -139,16 +221,31 @@ export default function SpaPage() {
         invoiceNumber: await nextInvoiceNumber(tenantId),
       });
 
+      // Bump the external client's aggregates so the list shows a real last
+      // visit and running total. increment() keeps this atomic per document
+      // even if two staff are booking at the same instant.
+      if (isExternal && externalRef) {
+        await updateTenantDocument(tenantId, 'spa_external_clients', externalRef, {
+          visits: increment(1),
+          totalSpent: increment(bookForm.price || 0),
+          lastVisitAt: Timestamp.fromDate(new Date()),
+        });
+      }
+
       toast.success(isAr ? 'تم الحجز بنجاح' : 'Booking confirmed');
       setShowBooking(false);
       const fallback = sellable[0];
       setBookForm({
+        clientType: 'member',
         memberId: '', member: null,
+        externalClientId: '', externalName: '', externalPhone: '',
         serviceId: fallback?.serviceId || '', duration: fallback?.duration || 60, price: fallback?.price || 0,
         notes: '', scheduledTime: '', paymentMethod: 'cash',
       });
       loadData();
+      if (isExternal) loadExternals();
     } catch (err) {
+      console.error('handleBook:', err);
       toast.error(t('common.error'));
     }
   };
@@ -216,7 +313,7 @@ export default function SpaPage() {
 
   const removeService = async () => {
     if (!confirmDelete || !tenantId) return;
-    const res = await deleteTenantSpaService(tenantId, confirmDelete.id);
+    const res = await deleteSpaSvc(tenantId, confirmDelete.id);
     if (!res.ok) { toast.error(spaServiceErrorMessage(res.error, isAr)); return; }
     logAuditClient({
       action: 'delete', entity: 'spa_service', entityId: confirmDelete.id, tenantId,
@@ -226,6 +323,79 @@ export default function SpaPage() {
     toast.success(isAr ? 'تم حذف الخدمة' : 'Service deleted');
     setConfirmDelete(null);
     reloadServices();
+  };
+
+  // ==================== External clients ====================
+
+  const openNewExternal = () => { setExternalForm(EMPTY_EXTERNAL); setEditingExternal('new'); };
+
+  const openEditExternal = (client) => {
+    setExternalForm({ name: client.name || '', phone: client.phone || '', notes: client.notes || '' });
+    setEditingExternal(client.id);
+  };
+
+  const closeExternal = () => { setEditingExternal(null); setExternalForm(EMPTY_EXTERNAL); };
+
+  const saveExternal = async () => {
+    if (savingExternal || !tenantId) return;
+    const name = (externalForm.name || '').trim();
+    if (!name) { toast.error(isAr ? 'الاسم مطلوب' : 'Name is required'); return; }
+
+    setSavingExternal(true);
+    const isNew = editingExternal === 'new';
+    try {
+      if (isNew) {
+        await addTenantDocument(tenantId, 'spa_external_clients', {
+          name,
+          phone: (externalForm.phone || '').trim(),
+          notes: (externalForm.notes || '').trim(),
+          visits: 0,
+          totalSpent: 0,
+          createdAt: Timestamp.fromDate(new Date()),
+          lastVisitAt: null,
+        });
+      } else {
+        await updateTenantDocument(tenantId, 'spa_external_clients', editingExternal, {
+          name,
+          phone: (externalForm.phone || '').trim(),
+          notes: (externalForm.notes || '').trim(),
+        });
+      }
+      logAuditClient({
+        action: isNew ? 'create' : 'update',
+        entity: 'spa_external_client',
+        entityId: isNew ? undefined : editingExternal,
+        tenantId,
+        details: { description: { en: `${isNew ? 'Created' : 'Updated'} external spa client ${name}`, ar: `${isNew ? 'إضافة' : 'تعديل'} عميل خارجي للسبا ${name}` } },
+      });
+      toast.success(isAr ? 'تم الحفظ ✅' : 'Saved ✅');
+      closeExternal();
+      loadExternals();
+    } catch (err) {
+      console.error('saveExternal:', err);
+      toast.error(t('common.error'));
+    }
+    setSavingExternal(false);
+  };
+
+  const removeExternal = async () => {
+    if (!confirmDeleteExternal || !tenantId) return;
+    try {
+      await deleteTenantDocument(tenantId, 'spa_external_clients', confirmDeleteExternal.id);
+      // Note: past bookings that reference this externalClientId stay pointing
+      // at a gone doc — that's fine, they carry the name they were saved with.
+      logAuditClient({
+        action: 'delete', entity: 'spa_external_client', entityId: confirmDeleteExternal.id, tenantId,
+        severity: 'warning',
+        details: { description: { en: `Deleted external spa client ${confirmDeleteExternal.name}`, ar: `حذف عميل خارجي للسبا ${confirmDeleteExternal.name}` } },
+      });
+      toast.success(isAr ? 'تم الحذف' : 'Deleted');
+      setConfirmDeleteExternal(null);
+      loadExternals();
+    } catch (err) {
+      console.error('removeExternal:', err);
+      toast.error(t('common.error'));
+    }
   };
 
   const toggleServiceActive = async (svc) => {
@@ -246,6 +416,7 @@ export default function SpaPage() {
       <div className="page-header">
         <h1><span>🧖</span> {t('spa.title')}</h1>
         <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" onClick={openNewExternal}>+ {isAr ? 'عميل خارجي' : 'External Client'}</button>
           <button className="btn btn-secondary" onClick={openNewService}>+ {isAr ? 'خدمة / باكدج' : 'Service / Package'}</button>
           <button className="btn btn-primary" onClick={() => setShowBooking(true)} disabled={sellable.length === 0}>
             + {t('spa.newBooking')}
@@ -342,6 +513,66 @@ export default function SpaPage() {
         )}
       </div>
 
+      {/* External clients — walk-ins who aren't gym members. */}
+      <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+          <h3 style={{ fontSize: 'var(--font-size-md)', margin: 0 }}>
+            🚶 {isAr ? 'العملاء الخارجيين (مش أعضاء جيم)' : 'External Clients (non-members)'}
+          </h3>
+          <button className="btn btn-secondary btn-sm" onClick={openNewExternal}>
+            + {isAr ? 'عميل جديد' : 'New client'}
+          </button>
+        </div>
+        {externalsLoading ? (
+          <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--pt-gray-500)' }}>{t('common.loading')}</div>
+        ) : externals.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 'var(--space-5)', color: 'var(--pt-gray-500)' }}>
+            {isAr ? 'مفيش عملاء خارجيين لسه — اضغط "عميل جديد" أو اختار "عميل خارجي" وقت الحجز.' : 'No external clients yet — click "New client" or pick "External Client" when booking.'}
+          </div>
+        ) : (
+          <div className="table-container" style={{ marginBottom: 0 }}>
+            <table className="data-table">
+              <thead><tr>
+                <th>#</th>
+                <th>{isAr ? 'الاسم' : 'Name'}</th>
+                <th>{isAr ? 'الهاتف' : 'Phone'}</th>
+                <th>{isAr ? 'زيارات' : 'Visits'}</th>
+                <th>{isAr ? 'إجمالي الإنفاق' : 'Total spent'}</th>
+                <th>{isAr ? 'آخر زيارة' : 'Last visit'}</th>
+                <th>{t('common.notes')}</th>
+                <th>{t('common.actions')}</th>
+              </tr></thead>
+              <tbody>
+                {externals.map((x, i) => {
+                  const last = x.lastVisitAt?.toDate ? x.lastVisitAt.toDate() : null;
+                  return (
+                    <tr key={x.id}>
+                      <td style={{ color: 'var(--pt-gray-500)' }}>{i + 1}</td>
+                      <td style={{ fontWeight: 600 }}>{x.name}</td>
+                      <td dir="ltr" style={{ fontFamily: 'var(--font-en)' }}>{x.phone || '—'}</td>
+                      <td style={{ fontWeight: 600 }}>{x.visits || 0}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--pt-gold)' }}>
+                        {(x.totalSpent || 0).toLocaleString()} {t('common.egp')}
+                      </td>
+                      <td>{last ? last.toLocaleDateString(isAr ? 'ar-EG' : 'en-US') : '—'}</td>
+                      <td style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)' }}>
+                        {x.notes || '—'}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => openEditExternal(x)} title={t('common.edit')}>✏️</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDeleteExternal(x)} title={t('common.delete')} style={{ color: 'var(--pt-danger)' }}>🗑️</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Filter & Table */}
       <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
         <select className="form-select" style={{ width: 'auto' }} value={dateFilter} onChange={e => setDateFilter(e.target.value)}>
@@ -369,7 +600,14 @@ export default function SpaPage() {
                 return (
                   <tr key={b.id}>
                     <td style={{ color: 'var(--pt-gray-500)' }}>{i + 1}</td>
-                    <td style={{ fontWeight: 600 }}>{b.memberName}</td>
+                    <td style={{ fontWeight: 600 }}>
+                      {b.memberName}
+                      {b.clientType === 'external' && (
+                        <span className="badge badge-info" style={{ marginInlineStart: 6, fontSize: 10 }}>
+                          🚶 {isAr ? 'خارجي' : 'External'}
+                        </span>
+                      )}
+                    </td>
                     <td>{b.serviceIcon || svc?.icon || DEFAULT_SPA_ICON} {b.serviceName || svc?.name?.[locale] || svc?.name?.ar || '—'}</td>
                     <td>{b.duration} {isAr ? 'دقيقة' : 'min'}</td>
                     <td style={{ fontWeight: 700, color: 'var(--pt-gold)' }}>{(b.price || 0).toLocaleString()} {t('common.egp')}</td>
@@ -398,15 +636,93 @@ export default function SpaPage() {
               <button onClick={() => setShowBooking(false)} style={{ fontSize: '1.2rem' }}>✕</button>
             </div>
             <div className="modal-body">
+              {/* Client type toggle — steers the client field below. */}
               <div className="form-group">
-                <label className="form-label">{t('subscriptions.selectMember')} *</label>
-                <MemberPicker
-                  tenantId={tenantId}
-                  value={bookForm.memberId}
-                  isAr={isAr}
-                  onChange={(id, member) => setBookForm(f => ({ ...f, memberId: id, member }))}
-                />
+                <label className="form-label">{isAr ? 'نوع العميل' : 'Client type'}</label>
+                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${bookForm.clientType === 'member' ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => setBookForm(f => ({ ...f, clientType: 'member' }))}
+                    style={{ flex: 1 }}
+                  >
+                    👤 {isAr ? 'عضو الجيم' : 'Gym Member'}
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${bookForm.clientType === 'external' ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => setBookForm(f => ({ ...f, clientType: 'external' }))}
+                    style={{ flex: 1 }}
+                  >
+                    🚶 {isAr ? 'عميل خارجي' : 'External Client'}
+                  </button>
+                </div>
               </div>
+
+              {bookForm.clientType === 'member' ? (
+                <div className="form-group">
+                  <label className="form-label">{t('subscriptions.selectMember')} *</label>
+                  <MemberPicker
+                    tenantId={tenantId}
+                    value={bookForm.memberId}
+                    isAr={isAr}
+                    onChange={(id, member) => setBookForm(f => ({ ...f, memberId: id, member }))}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">
+                      {isAr ? 'اختار عميل خارجي مسجل' : 'Pick a saved external client'}
+                    </label>
+                    <select
+                      className="form-select"
+                      value={bookForm.externalClientId}
+                      onChange={e => {
+                        const id = e.target.value;
+                        const chosen = externals.find(x => x.id === id);
+                        setBookForm(f => ({
+                          ...f,
+                          externalClientId: id,
+                          externalName: chosen?.name || '',
+                          externalPhone: chosen?.phone || '',
+                        }));
+                      }}
+                    >
+                      <option value="">{isAr ? '— جديد (اكتب البيانات تحت) —' : '— New (fill in below) —'}</option>
+                      {externals.map(x => (
+                        <option key={x.id} value={x.id}>
+                          {x.name}{x.phone ? ` — ${x.phone}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {!bookForm.externalClientId && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                      <div className="form-group">
+                        <label className="form-label">{isAr ? 'اسم العميل' : 'Client name'} *</label>
+                        <input
+                          className="form-input"
+                          value={bookForm.externalName}
+                          onChange={e => setBookForm(f => ({ ...f, externalName: e.target.value }))}
+                          placeholder={isAr ? 'الاسم' : 'Name'}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">{isAr ? 'الهاتف' : 'Phone'}</label>
+                        <input
+                          className="form-input"
+                          type="tel"
+                          dir="ltr"
+                          value={bookForm.externalPhone}
+                          onChange={e => setBookForm(f => ({ ...f, externalPhone: e.target.value }))}
+                          placeholder="01234567890"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
               <div className="form-group">
                 <label className="form-label">{t('spa.service')} *</label>
                 <select className="form-select" value={bookForm.serviceId} onChange={e => {
@@ -449,7 +765,12 @@ export default function SpaPage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowBooking(false)}>{t('common.cancel')}</button>
-              <button className="btn btn-primary" onClick={handleBook} disabled={!bookForm.memberId || !bookForm.serviceId}>✅ {t('spa.confirmBooking')}</button>
+              <button className="btn btn-primary" onClick={handleBook} disabled={
+                !bookForm.serviceId ||
+                (bookForm.clientType === 'member'
+                  ? !bookForm.memberId
+                  : !(bookForm.externalClientId || (bookForm.externalName || '').trim()))
+              }>✅ {t('spa.confirmBooking')}</button>
             </div>
           </div>
         </div>
@@ -507,6 +828,87 @@ export default function SpaPage() {
               <button className="btn btn-primary" onClick={saveService} disabled={savingService}>
                 {savingService ? '⏳' : '💾'} {t('common.save')}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create / edit an external client */}
+      {editingExternal && (
+        <div className="modal-overlay" onClick={() => { if (!savingExternal) closeExternal(); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="modal-header">
+              <h2>🚶 {editingExternal === 'new'
+                ? (isAr ? 'عميل خارجي جديد' : 'New External Client')
+                : (isAr ? 'تعديل بيانات العميل' : 'Edit External Client')}</h2>
+              <button onClick={closeExternal} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">{isAr ? 'الاسم' : 'Name'} *</label>
+                <input
+                  className="form-input"
+                  value={externalForm.name}
+                  onChange={e => setExternalForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder={isAr ? 'أحمد محمد' : 'Ahmed Mohamed'}
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">{isAr ? 'الهاتف' : 'Phone'}</label>
+                <input
+                  className="form-input"
+                  type="tel"
+                  dir="ltr"
+                  value={externalForm.phone}
+                  onChange={e => setExternalForm(f => ({ ...f, phone: e.target.value }))}
+                  placeholder="01234567890"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">{t('common.notes')}</label>
+                <textarea
+                  className="form-input"
+                  rows={2}
+                  value={externalForm.notes}
+                  onChange={e => setExternalForm(f => ({ ...f, notes: e.target.value }))}
+                  placeholder={isAr ? 'أي ملاحظات — مثلاً: صديق فلان' : 'Any notes — e.g. friend of X'}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={closeExternal} disabled={savingExternal}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" onClick={saveExternal} disabled={savingExternal || !(externalForm.name || '').trim()}>
+                {savingExternal ? '⏳' : '💾'} {t('common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete external client confirmation */}
+      {confirmDeleteExternal && (
+        <div className="modal-overlay" onClick={() => setConfirmDeleteExternal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-header">
+              <h2 style={{ color: 'var(--pt-danger)' }}>🗑️ {isAr ? 'حذف العميل الخارجي' : 'Delete External Client'}</h2>
+              <button onClick={() => setConfirmDeleteExternal(null)} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 'var(--space-3)' }}>
+                {isAr
+                  ? `هتحذف "${confirmDeleteExternal.name}" من قايمة العملاء الخارجيين.`
+                  : `Delete "${confirmDeleteExternal.name}" from the external clients list.`}
+              </p>
+              <div style={{ padding: 'var(--space-3)', background: 'var(--pt-darker)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-sm)', color: 'var(--pt-gray-400)' }}>
+                {isAr
+                  ? 'الحجوزات القديمة والمدفوعات مش هتتأثر — بيفضل مسجّل عليهم الاسم اللي اتحجز بيه.'
+                  : 'Past bookings and payments are unaffected — they keep the name they were saved with.'}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setConfirmDeleteExternal(null)}>{t('common.cancel')}</button>
+              <button className="btn btn-danger" onClick={removeExternal}>🗑️ {t('common.delete')}</button>
             </div>
           </div>
         </div>

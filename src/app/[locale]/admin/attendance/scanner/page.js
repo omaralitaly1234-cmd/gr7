@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, getTenantCollectionCount } from '@/lib/firebase/firestore';
+import { getTenantDocuments, getTenantCollectionCount, updateTenantDocument } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import ScannedMemberPanel from '@/components/ScannedMemberPanel';
@@ -131,29 +131,53 @@ export default function AttendanceScannerPage() {
     setMemberData(member);
     loadMemberContext(member.id);
 
-    // Check subscription status
-    if (member.status === 'expired') {
+    // The member doc's `status` field is denormalised — it can drift out of
+    // sync with reality: the nightly expiry cron marks a member expired based
+    // on one subscription while another (renewed) one is actually active, or a
+    // renewal write raced with a stale read. Trust the SUBSCRIPTION document
+    // instead, and self-heal member.status when it disagrees. This is what
+    // caused check-ins to be shown as "expired" for members whose renewal was
+    // clearly still valid.
+    const { data: activeSubs } = await getTenantDocuments(tenantId, 'subscriptions', [
+      { field: 'memberId', operator: '==', value: member.id },
+      { field: 'status', operator: '==', value: 'active' },
+    ], { field: 'endDate', direction: 'desc' }, 1);
+    const activeSub = activeSubs?.[0] || null;
+    const activeEnd = activeSub?.endDate?.toDate ? activeSub.endDate.toDate() : null;
+    const hasValidActive = !!(activeSub && activeEnd && activeEnd.getTime() > Date.now());
+
+    let effectiveStatus = member.status;
+    if (hasValidActive) {
+      effectiveStatus = 'active';
+    } else if (member.status !== 'frozen') {
+      // No unexpired active sub — really expired.
+      effectiveStatus = 'expired';
+    }
+
+    // Fix a stale member.status in the background so the members list and
+    // dashboard stop mis-labelling this person. Fire-and-forget: the check-in
+    // itself must not wait on this write.
+    if (effectiveStatus !== member.status) {
+      updateTenantDocument(tenantId, 'members', member.id, { status: effectiveStatus })
+        .catch(err => console.warn('member.status self-heal failed:', err));
+      // Keep the on-screen card in sync with what we just decided.
+      setMemberData(prev => (prev ? { ...prev, status: effectiveStatus } : prev));
+    }
+
+    if (effectiveStatus === 'frozen') {
+      setScanResult(t('attendance.subscriptionFrozen'));
+      setResultType('frozen');
+      return;
+    }
+    if (effectiveStatus !== 'active') {
       setScanResult(t('attendance.subscriptionExpired'));
       setResultType('expired');
       return;
     }
 
-    if (member.status === 'frozen') {
-      setScanResult(t('attendance.subscriptionFrozen'));
-      setResultType('frozen');
-      return;
-    }
-
-    // Pre-resolve the active subscription (query outside the transaction — the
-    // transaction re-reads it by id for a consistent decrement).
-    let activeSubId = null;
-    if (member.currentPlan?.type !== 'diamond') {
-      const { data: activeSubs } = await getTenantDocuments(tenantId, 'subscriptions', [
-        { field: 'memberId', operator: '==', value: member.id },
-        { field: 'status', operator: '==', value: 'active' },
-      ]);
-      activeSubId = activeSubs?.[0]?.id || null;
-    }
+    // Session-plan members deduct one session per check-in; diamond members
+    // (unlimited plan) skip the sub write entirely.
+    const activeSubId = (member.currentPlan?.type !== 'diamond') ? (activeSub?.id || null) : null;
 
     // Atomic check-in with up to TWO slots per day (morning + evening). Slot 1
     // uses the legacy id `{memberId}_{dateStr}` so older records keep working;
@@ -196,7 +220,7 @@ export default function AttendanceScannerPage() {
           checkIn: Timestamp.fromDate(new Date()),
           method: 'qr_scan',
           subscriptionId: activeSubId || member.currentPlan?.planId || '',
-          subscriptionStatus: member.status,
+          subscriptionStatus: effectiveStatus,
           sessionDeducted,
           visitSlot,
           createdAt: Timestamp.fromDate(new Date()),

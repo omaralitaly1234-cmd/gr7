@@ -33,6 +33,14 @@ export default function MembersPage() {
   const [editingRowId, setEditingRowId] = useState(null);
   const [editDraft, setEditDraft] = useState({ fullNameAr: '', phone: '' });
   const [savingRow, setSavingRow] = useState(false);
+  // Edit subscription dates from the members list — same feature as the
+  // subscriptions page, but reachable from wherever the desk is working.
+  const [editDatesMember, setEditDatesMember] = useState(null);
+  const [editDatesSub, setEditDatesSub] = useState(null);
+  const [editStartInput, setEditStartInput] = useState('');
+  const [editEndInput, setEditEndInput] = useState('');
+  const [loadingDatesSub, setLoadingDatesSub] = useState(false);
+  const [savingDates, setSavingDates] = useState(false);
 
   // Server-side paging cursors. pageStack[i] is the Firestore doc to start
   // page i after; index 0 is the first page (no cursor).
@@ -211,6 +219,130 @@ export default function MembersPage() {
       console.error('Inline save failed:', err);
     }
     setSavingRow(false);
+  };
+
+  // ---- Edit subscription dates from a member row ----
+
+  const toDateInput = (d) => {
+    if (!d) return '';
+    const dt = d?.toDate ? d.toDate() : (d instanceof Date ? d : new Date(d));
+    if (isNaN(dt.getTime())) return '';
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  };
+  const fromDateInput = (s) => {
+    if (!s) return null;
+    const [y, m, d] = s.split('-').map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+  };
+
+  const openEditDates = async (member) => {
+    if (!tenantId || !member?.id) return;
+    setEditDatesMember(member);
+    setEditDatesSub(null);
+    setEditStartInput('');
+    setEditEndInput('');
+    setLoadingDatesSub(true);
+    try {
+      // The newest sub is the one the desk means — same rule used elsewhere
+      // (member profile, scanner). Uses the deployed memberId+createdAt index.
+      const { data } = await getTenantDocuments(tenantId, 'subscriptions',
+        [{ field: 'memberId', operator: '==', value: member.id }],
+        { field: 'createdAt', direction: 'desc' }, 1);
+      const sub = data?.[0] || null;
+      setEditDatesSub(sub);
+      if (sub) {
+        setEditStartInput(toDateInput(sub.startDate));
+        setEditEndInput(toDateInput(sub.endDate || member.endDate));
+      } else {
+        // No sub doc — fall back to editing the denormalised member.endDate.
+        setEditStartInput('');
+        setEditEndInput(toDateInput(member.endDate));
+      }
+    } catch (err) {
+      console.error('openEditDates:', err);
+    }
+    setLoadingDatesSub(false);
+  };
+
+  const closeEditDates = () => {
+    if (savingDates) return;
+    setEditDatesMember(null);
+    setEditDatesSub(null);
+    setEditStartInput('');
+    setEditEndInput('');
+  };
+
+  // Shifting the start date should carry the end date with it — that's the
+  // "wrong day picked" fix. The admin can still edit the end date directly.
+  const handleStartChange = (value) => {
+    const oldStart = fromDateInput(editStartInput);
+    const newStart = fromDateInput(value);
+    const oldEnd = fromDateInput(editEndInput);
+    setEditStartInput(value);
+    if (oldStart && newStart && oldEnd) {
+      const delta = newStart.getTime() - oldStart.getTime();
+      setEditEndInput(toDateInput(new Date(oldEnd.getTime() + delta)));
+    }
+  };
+
+  const handleSaveDates = async () => {
+    if (!editDatesMember || !tenantId || savingDates) return;
+    const start = fromDateInput(editStartInput);
+    const end = fromDateInput(editEndInput);
+    if (!end) return;
+    if (start && end.getTime() <= start.getTime()) return;
+
+    setSavingDates(true);
+    try {
+      const endTs = Timestamp.fromDate(end);
+
+      if (editDatesSub && start) {
+        const startTs = Timestamp.fromDate(start);
+        const { error } = await updateTenantDocument(tenantId, 'subscriptions', editDatesSub.id, {
+          startDate: startTs,
+          endDate: endTs,
+          ...(editDatesSub.originalEndDate && editDatesSub.endDate
+            && editDatesSub.originalEndDate?.toMillis?.() === editDatesSub.endDate?.toMillis?.()
+            ? { originalEndDate: endTs }
+            : {}),
+          datesEditedAt: Timestamp.fromDate(new Date()),
+          datesEditedBy: 'admin',
+        });
+        if (error) throw new Error(error);
+      }
+
+      // Always refresh the denormalised endDate on the member doc — every page
+      // that shows expiry (list, dashboard, scanner card) reads it directly.
+      await updateTenantDocument(tenantId, 'members', editDatesMember.id, {
+        endDate: endTs,
+        ...(editDatesMember.currentPlan
+          ? { 'currentPlan.endDate': endTs }
+          : {}),
+      });
+
+      logAuditClient({
+        action: 'update',
+        entity: 'member',
+        entityId: editDatesMember.id,
+        tenantId,
+        details: {
+          description: {
+            en: `Edited subscription dates for ${editDatesMember.fullName?.ar || editDatesMember.id}: ends ${editEndInput}${start ? ` (starts ${editStartInput})` : ''}`,
+            ar: `تعديل تواريخ اشتراك ${editDatesMember.fullName?.ar || editDatesMember.id}: ينتهي ${editEndInput}${start ? ` (يبدأ ${editStartInput})` : ''}`,
+          },
+        },
+      });
+
+      // Reflect in the on-screen row so the admin sees the change immediately.
+      setMembers(prev => prev.map(m =>
+        m.id === editDatesMember.id ? { ...m, endDate: endTs } : m
+      ));
+      closeEditDates();
+    } catch (err) {
+      console.error('handleSaveDates:', err);
+    }
+    setSavingDates(false);
   };
 
   const handleDelete = async (memberId) => {
@@ -442,6 +574,13 @@ export default function MembersPage() {
                           >
                             ⚡
                           </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => openEditDates(member)}
+                            title={locale === 'ar' ? 'تعديل تاريخ الاشتراك' : 'Edit subscription dates'}
+                          >
+                            📅
+                          </button>
                           <Link href={`/${locale}/admin/members/${member.id}/edit`} className="btn btn-ghost btn-sm" title={t('common.edit')}>
                             ✏️
                           </Link>
@@ -491,6 +630,113 @@ export default function MembersPage() {
           </div>
         )}
       </div>
+
+      {/* Edit subscription dates modal — reachable from any member row */}
+      {editDatesMember && (() => {
+        const parsedStart = fromDateInput(editStartInput);
+        const parsedEnd = fromDateInput(editEndInput);
+        const durationDays = (parsedStart && parsedEnd)
+          ? Math.max(0, Math.round((parsedEnd.getTime() - parsedStart.getTime()) / 86400000))
+          : null;
+        const canSave = !!parsedEnd
+          && (!parsedStart || parsedEnd.getTime() > parsedStart.getTime());
+        const isAr = locale === 'ar';
+        return (
+          <div className="modal-overlay" onClick={closeEditDates}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+              <div className="modal-header">
+                <h2>📅 {isAr ? 'تعديل تواريخ الاشتراك' : 'Edit subscription dates'}</h2>
+                <button onClick={closeEditDates} style={{ fontSize: '1.2rem' }} disabled={savingDates}>✕</button>
+              </div>
+              <div className="modal-body">
+                <p style={{ marginBottom: 'var(--space-4)', color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)' }}>
+                  <strong>{editDatesMember.fullName?.[locale] || editDatesMember.fullName?.ar}</strong>
+                  {editDatesMember.membershipNumber ? ` — ${editDatesMember.membershipNumber}` : ''}
+                </p>
+
+                {loadingDatesSub ? (
+                  <p style={{ textAlign: 'center', color: 'var(--pt-gray-500)' }}>{t('common.loading')}</p>
+                ) : (
+                  <>
+                    {!editDatesSub && (
+                      <div style={{
+                        marginBottom: 'var(--space-3)', padding: 'var(--space-3)',
+                        background: 'var(--pt-darker)', borderRadius: 'var(--radius-sm)',
+                        fontSize: 'var(--font-size-sm)', color: 'var(--pt-gray-400)',
+                      }}>
+                        {isAr
+                          ? 'مفيش وثيقة اشتراك — التعديل هيغيّر تاريخ النهاية على بيانات العضو بس.'
+                          : 'No subscription doc — this will only update the member\'s end date field.'}
+                      </div>
+                    )}
+
+                    {editDatesSub && (
+                      <div className="form-group" style={{ marginBottom: 'var(--space-3)' }}>
+                        <label className="form-label">{isAr ? 'تاريخ البداية' : 'Start date'}</label>
+                        <input
+                          className="form-input"
+                          type="date"
+                          dir="ltr"
+                          value={editStartInput}
+                          onChange={e => handleStartChange(e.target.value)}
+                        />
+                        <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>
+                          {isAr
+                            ? 'لو غيّرت البداية، النهاية بتتحرك تلقائياً بنفس عدد الأيام.'
+                            : 'Changing the start shifts the end by the same delta.'}
+                        </small>
+                      </div>
+                    )}
+
+                    <div className="form-group" style={{ marginBottom: 'var(--space-3)' }}>
+                      <label className="form-label">{isAr ? 'تاريخ النهاية' : 'End date'} *</label>
+                      <input
+                        className="form-input"
+                        type="date"
+                        dir="ltr"
+                        value={editEndInput}
+                        onChange={e => setEditEndInput(e.target.value)}
+                      />
+                    </div>
+
+                    {durationDays !== null && (
+                      <div style={{
+                        padding: 'var(--space-3)', background: 'var(--pt-darker)',
+                        borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-sm)',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--pt-gray-400)' }}>{isAr ? 'المدة الجديدة' : 'New duration'}</span>
+                          <strong dir="ltr">{durationDays} {isAr ? 'يوم' : 'days'}</strong>
+                        </div>
+                      </div>
+                    )}
+
+                    {parsedEnd && parsedEnd.getTime() < Date.now() && (
+                      <p style={{ color: 'var(--pt-warning)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-3)' }}>
+                        ⚠️ {isAr
+                          ? 'تاريخ النهاية في الماضي — الاشتراك هيبقى منتهي.'
+                          : 'The new end date is in the past — the subscription will be expired.'}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={closeEditDates} disabled={savingDates}>
+                  {t('common.cancel')}
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSaveDates}
+                  disabled={savingDates || loadingDatesSub || !canSave}
+                >
+                  {savingDates ? '⏳' : '💾'} {t('common.save')}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && (

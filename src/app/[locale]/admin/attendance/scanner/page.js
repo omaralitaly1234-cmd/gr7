@@ -132,36 +132,44 @@ export default function AttendanceScannerPage() {
     loadMemberContext(member.id);
 
     // The member doc's `status` field is denormalised — it can drift out of
-    // sync with reality: the nightly expiry cron marks a member expired based
-    // on one subscription while another (renewed) one is actually active, or a
-    // renewal write raced with a stale read. Trust the SUBSCRIPTION document
-    // instead, and self-heal member.status when it disagrees. This is what
-    // caused check-ins to be shown as "expired" for members whose renewal was
-    // clearly still valid.
-    // Two-equality query — no orderBy on purpose. Adding an orderBy needs a
-    // composite index that isn't deployed, and without it the query silently
-    // returns empty and the member gets mislabelled as expired. Members
-    // typically have one active sub (occasionally two when renewed early);
-    // pick the latest by endDate client-side.
-    const { data: activeSubs } = await getTenantDocuments(tenantId, 'subscriptions', [
-      { field: 'memberId', operator: '==', value: member.id },
-      { field: 'status', operator: '==', value: 'active' },
-    ]);
-    const activeSub = (activeSubs || [])
-      .slice()
+    // sync with reality: the nightly expiry cron marks a sub expired against
+    // one memberId while another (renewed) sub is still valid, a renewal
+    // write races with a stale read, or someone edits a member's endDate
+    // without touching the sub. Filtering the subs by `status == 'active'`
+    // isn't enough either — a sub's status field can also be stale.
+    //
+    // The source of truth is the ENDATE on the newest few subs: if ANY of
+    // them is in the future, the member is really active. Uses the deployed
+    // (memberId ASC, createdAt DESC) index.
+    const { data: recentSubs } = await getTenantDocuments(tenantId, 'subscriptions',
+      [{ field: 'memberId', operator: '==', value: member.id }],
+      { field: 'createdAt', direction: 'desc' }, 5);
+    const nowMs = Date.now();
+    const activeSub = (recentSubs || [])
+      .filter(s => {
+        const end = s.endDate?.toDate ? s.endDate.toDate() : null;
+        // A cancelled sub is a real cancellation — don't resurrect one just
+        // because its endDate happens to still be in the future.
+        return end && end.getTime() > nowMs && s.status !== 'cancelled';
+      })
       .sort((a, b) => {
         const ae = a.endDate?.toDate ? a.endDate.toDate().getTime() : 0;
         const be = b.endDate?.toDate ? b.endDate.toDate().getTime() : 0;
         return be - ae;
       })[0] || null;
-    const activeEnd = activeSub?.endDate?.toDate ? activeSub.endDate.toDate() : null;
-    const hasValidActive = !!(activeSub && activeEnd && activeEnd.getTime() > Date.now());
+    const hasValidActive = !!activeSub;
+    // If the winning sub's own status is stale, patch it too so tables that
+    // filter by status='active' (subscriptions page, dashboard) stop showing
+    // it in the wrong bucket.
+    if (activeSub && activeSub.status !== 'active' && activeSub.status !== 'frozen') {
+      updateTenantDocument(tenantId, 'subscriptions', activeSub.id, { status: 'active' })
+        .catch(err => console.warn('subscription.status self-heal failed:', err));
+    }
 
-    let effectiveStatus = member.status;
+    let effectiveStatus;
     if (hasValidActive) {
-      effectiveStatus = 'active';
-    } else if (member.status !== 'frozen') {
-      // No unexpired active sub — really expired.
+      effectiveStatus = activeSub.status === 'frozen' ? 'frozen' : 'active';
+    } else {
       effectiveStatus = 'expired';
     }
 

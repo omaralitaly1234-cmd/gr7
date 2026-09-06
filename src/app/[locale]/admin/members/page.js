@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { getTenantDocuments, updateTenantDocument, getTenantCollectionCount, getTenantPaginatedDocuments } from '@/lib/firebase/firestore';
 import { logAuditClient } from '@/lib/firebase/audit';
 import { useTenant } from '@/context/TenantContext';
+import { useMembershipPlans } from '@/lib/hooks/useMembershipPlans';
 import { Timestamp } from 'firebase/firestore';
 import styles from './members.module.css';
 
@@ -41,6 +42,10 @@ export default function MembersPage() {
   const [editEndInput, setEditEndInput] = useState('');
   const [loadingDatesSub, setLoadingDatesSub] = useState(false);
   const [savingDates, setSavingDates] = useState(false);
+  // Optional plan change. Empty = keep the current plan; otherwise the picked
+  // plan's duration recomputes the end date and its session count is applied.
+  const [editPlanId, setEditPlanId] = useState('');
+  const { plans: membershipPlans } = useMembershipPlans(tenantId);
 
   // Server-side paging cursors. pageStack[i] is the Firestore doc to start
   // page i after; index 0 is the first page (no cursor).
@@ -242,6 +247,7 @@ export default function MembersPage() {
     setEditDatesSub(null);
     setEditStartInput('');
     setEditEndInput('');
+    setEditPlanId('');
     setLoadingDatesSub(true);
     try {
       // The newest sub is the one the desk means — same rule used elsewhere
@@ -271,6 +277,21 @@ export default function MembersPage() {
     setEditDatesSub(null);
     setEditStartInput('');
     setEditEndInput('');
+    setEditPlanId('');
+  };
+
+  // Switching to a different plan recomputes the end date as start + the new
+  // plan's duration, so the admin sees the outcome before saving. The end date
+  // is still editable after — the plan just seeds it.
+  const handlePlanChange = (newPlanId) => {
+    setEditPlanId(newPlanId);
+    if (!newPlanId) return;
+    const p = membershipPlans.find(x => x.id === newPlanId);
+    const start = fromDateInput(editStartInput);
+    if (!p || !start || !p.duration) return;
+    const end = new Date(start.getTime());
+    end.setDate(end.getDate() + Number(p.duration));
+    setEditEndInput(toDateInput(end));
   };
 
   // Shifting the start date should carry the end date with it — that's the
@@ -296,10 +317,15 @@ export default function MembersPage() {
     setSavingDates(true);
     try {
       const endTs = Timestamp.fromDate(end);
+      // A plan swap is only meaningful when there is a sub doc to update — the
+      // dropdown is hidden without one, but guard here too.
+      const newPlan = (editPlanId && editDatesSub)
+        ? membershipPlans.find(p => p.id === editPlanId)
+        : null;
 
       if (editDatesSub && start) {
         const startTs = Timestamp.fromDate(start);
-        const { error } = await updateTenantDocument(tenantId, 'subscriptions', editDatesSub.id, {
+        const subPatch = {
           startDate: startTs,
           endDate: endTs,
           ...(editDatesSub.originalEndDate && editDatesSub.endDate
@@ -308,18 +334,45 @@ export default function MembersPage() {
             : {}),
           datesEditedAt: Timestamp.fromDate(new Date()),
           datesEditedBy: 'admin',
-        });
+        };
+        if (newPlan) {
+          // Sessions already used stay used — only the ceiling and what remains
+          // are re-based on the new plan.
+          const usedSessions = Number(editDatesSub.usedSessions) || 0;
+          const newTotal = Number(newPlan.sessions) || 0;
+          subPatch.planId = newPlan.planId || newPlan.id;
+          subPatch.planSnapshot = newPlan;
+          subPatch.totalSessions = newTotal;
+          subPatch.remainingSessions = Math.max(0, newTotal - usedSessions);
+          subPatch.planEditedAt = Timestamp.fromDate(new Date());
+          subPatch.planEditedBy = 'admin';
+        }
+        const { error } = await updateTenantDocument(tenantId, 'subscriptions', editDatesSub.id, subPatch);
         if (error) throw new Error(error);
       }
 
       // Always refresh the denormalised endDate on the member doc — every page
       // that shows expiry (list, dashboard, scanner card) reads it directly.
-      await updateTenantDocument(tenantId, 'members', editDatesMember.id, {
+      // A plan swap also updates the denormalised plan fields the members list,
+      // dashboard and scanner card read.
+      const memberPatch = {
         endDate: endTs,
         ...(editDatesMember.currentPlan
           ? { 'currentPlan.endDate': endTs }
           : {}),
-      });
+      };
+      if (newPlan) {
+        const planNameLocal = newPlan.name?.[locale] || newPlan.name?.ar || '';
+        memberPatch.planName = planNameLocal;
+        memberPatch.currentPlan = {
+          ...(editDatesMember.currentPlan || {}),
+          planId: newPlan.planId || newPlan.id,
+          planName: planNameLocal,
+          type: newPlan.type || editDatesMember.currentPlan?.type || '',
+          endDate: endTs,
+        };
+      }
+      await updateTenantDocument(tenantId, 'members', editDatesMember.id, memberPatch);
 
       logAuditClient({
         action: 'update',
@@ -328,15 +381,24 @@ export default function MembersPage() {
         tenantId,
         details: {
           description: {
-            en: `Edited subscription dates for ${editDatesMember.fullName?.ar || editDatesMember.id}: ends ${editEndInput}${start ? ` (starts ${editStartInput})` : ''}`,
-            ar: `تعديل تواريخ اشتراك ${editDatesMember.fullName?.ar || editDatesMember.id}: ينتهي ${editEndInput}${start ? ` (يبدأ ${editStartInput})` : ''}`,
+            en: `Edited subscription${newPlan ? ` plan → ${newPlan.name?.en || newPlan.name?.ar}` : ' dates'} for ${editDatesMember.fullName?.ar || editDatesMember.id}: ends ${editEndInput}${start ? ` (starts ${editStartInput})` : ''}`,
+            ar: `تعديل ${newPlan ? `خطة الاشتراك إلى ${newPlan.name?.ar || newPlan.name?.en}` : 'تواريخ الاشتراك'} — ${editDatesMember.fullName?.ar || editDatesMember.id}: ينتهي ${editEndInput}${start ? ` (يبدأ ${editStartInput})` : ''}`,
           },
         },
       });
 
       // Reflect in the on-screen row so the admin sees the change immediately.
       setMembers(prev => prev.map(m =>
-        m.id === editDatesMember.id ? { ...m, endDate: endTs } : m
+        m.id === editDatesMember.id
+          ? {
+              ...m,
+              endDate: endTs,
+              ...(newPlan ? {
+                planName: memberPatch.planName,
+                currentPlan: memberPatch.currentPlan,
+              } : {}),
+            }
+          : m
       ));
       closeEditDates();
     } catch (err) {
@@ -577,7 +639,7 @@ export default function MembersPage() {
                           <button
                             className="btn btn-ghost btn-sm"
                             onClick={() => openEditDates(member)}
-                            title={locale === 'ar' ? 'تعديل تاريخ الاشتراك' : 'Edit subscription dates'}
+                            title={locale === 'ar' ? 'تعديل الاشتراك (الخطة والتواريخ)' : 'Edit subscription (plan & dates)'}
                           >
                             📅
                           </button>
@@ -645,7 +707,7 @@ export default function MembersPage() {
           <div className="modal-overlay" onClick={closeEditDates}>
             <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
               <div className="modal-header">
-                <h2>📅 {isAr ? 'تعديل تواريخ الاشتراك' : 'Edit subscription dates'}</h2>
+                <h2>📅 {isAr ? 'تعديل الاشتراك' : 'Edit subscription'}</h2>
                 <button onClick={closeEditDates} style={{ fontSize: '1.2rem' }} disabled={savingDates}>✕</button>
               </div>
               <div className="modal-body">
@@ -669,6 +731,45 @@ export default function MembersPage() {
                           : 'No subscription doc — this will only update the member\'s end date field.'}
                       </div>
                     )}
+
+                    {editDatesSub && membershipPlans.length > 0 && (() => {
+                      // Preselect nothing on open — an empty value means "keep
+                      // the current plan". Match either the stable planId or
+                      // the plan doc id so both writes shape up correctly.
+                      const currentPlan = membershipPlans.find(p =>
+                        p.planId === editDatesSub.planId || p.id === editDatesSub.planId
+                      );
+                      const currentLabel = editDatesSub.planSnapshot?.name?.[locale]
+                        || editDatesSub.planSnapshot?.name?.ar
+                        || currentPlan?.name?.[locale]
+                        || currentPlan?.name?.ar
+                        || editDatesSub.planId
+                        || '—';
+                      return (
+                        <div className="form-group" style={{ marginBottom: 'var(--space-3)' }}>
+                          <label className="form-label">{isAr ? 'الخطة' : 'Plan'}</label>
+                          <select
+                            className="form-select"
+                            value={editPlanId}
+                            onChange={e => handlePlanChange(e.target.value)}
+                          >
+                            <option value="">
+                              {isAr ? `الحالية: ${currentLabel} (بدون تغيير)` : `Current: ${currentLabel} (no change)`}
+                            </option>
+                            {membershipPlans.map(p => (
+                              <option key={p.id} value={p.id}>
+                                {p.name?.[locale] || p.name?.ar} — {p.duration} {isAr ? 'يوم' : 'days'}
+                              </option>
+                            ))}
+                          </select>
+                          <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>
+                            {isAr
+                              ? 'اختيار خطة جديدة يعيد حساب تاريخ النهاية = البداية + مدة الخطة.'
+                              : 'Picking a new plan recomputes end = start + plan duration.'}
+                          </small>
+                        </div>
+                      );
+                    })()}
 
                     {editDatesSub && (
                       <div className="form-group" style={{ marginBottom: 'var(--space-3)' }}>

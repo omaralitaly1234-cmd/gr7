@@ -37,6 +37,30 @@ export default function AttendanceScannerPage() {
   const scannerRef = useRef(null);
   const html5QrCode = useRef(null);
 
+  // Arabic voice feedback for the front desk: a spoken confirmation on
+  // successful check-in and a spoken renewal prompt on expired subs, so staff
+  // don't have to keep their eyes on the screen.
+  const speak = useCallback((text) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'ar-SA';
+      u.rate = 1;
+      u.volume = 1;
+      const arVoice = window.speechSynthesis.getVoices().find(v => v.lang?.startsWith('ar'));
+      if (arVoice) u.voice = arVoice;
+      window.speechSynthesis.speak(u);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+    }
+  }, []);
+
   // Today's tally + the five most recent scans. The count is a server-side
   // aggregation and the list is capped at five: this used to download every
   // check-in of the day just to call .length and slice(0, 5) off it, on a page
@@ -191,6 +215,7 @@ export default function AttendanceScannerPage() {
     if (effectiveStatus !== 'active') {
       setScanResult(t('attendance.subscriptionExpired'));
       setResultType('expired');
+      speak('يرجى تجديد الاشتراك الخاص بكم');
       return;
     }
 
@@ -269,6 +294,7 @@ export default function AttendanceScannerPage() {
 
     setScanResult(t('attendance.checkInSuccess'));
     setResultType('success');
+    speak('تم تسجيل الدخول بنجاح');
     setTodayCount(prev => prev + 1);
 
     // The history query was issued before this check-in existed — fold today's

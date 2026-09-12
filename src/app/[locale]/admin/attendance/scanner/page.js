@@ -37,10 +37,56 @@ export default function AttendanceScannerPage() {
   const scannerRef = useRef(null);
   const html5QrCode = useRef(null);
 
-  // Arabic voice feedback for the front desk: a spoken confirmation on
-  // successful check-in and a spoken renewal prompt on expired subs, so staff
-  // don't have to keep their eyes on the screen.
-  const speak = useCallback((text) => {
+  // Audio feedback for the front desk. Two layers so at least one lands:
+  //   1) A synthesized tone via Web Audio (always audible once the user has
+  //      clicked anything on the page — success = rising two-note chime,
+  //      expired = low buzz).
+  //   2) Arabic TTS on top when the browser/OS has an Arabic voice.
+  // SpeechSynthesis alone was silent for the user, so the tone is the primary
+  // signal and the speech is a bonus.
+  const audioCtxRef = useRef(null);
+  const getAudioCtx = useCallback(() => {
+    if (typeof window === 'undefined') return null;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!audioCtxRef.current) audioCtxRef.current = new AC();
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume().catch(() => {});
+    }
+    return audioCtxRef.current;
+  }, []);
+
+  const playTone = useCallback((notes) => {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    let t = ctx.currentTime;
+    for (const { freq, dur, type = 'sine', vol = 0.25 } of notes) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(vol, t + 0.01);
+      gain.gain.linearRampToValueAtTime(0, t + dur);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + dur + 0.02);
+      t += dur;
+    }
+  }, [getAudioCtx]);
+
+  const speak = useCallback((text, tone) => {
+    if (tone === 'success') {
+      playTone([
+        { freq: 880, dur: 0.15 },
+        { freq: 1320, dur: 0.22 },
+      ]);
+    } else if (tone === 'error') {
+      playTone([
+        { freq: 300, dur: 0.18, type: 'square', vol: 0.22 },
+        { freq: 220, dur: 0.35, type: 'square', vol: 0.22 },
+      ]);
+    }
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
     try {
       window.speechSynthesis.cancel();
@@ -50,9 +96,9 @@ export default function AttendanceScannerPage() {
       u.volume = 1;
       const arVoice = window.speechSynthesis.getVoices().find(v => v.lang?.startsWith('ar'));
       if (arVoice) u.voice = arVoice;
-      window.speechSynthesis.speak(u);
+      setTimeout(() => { try { window.speechSynthesis.speak(u); } catch {} }, 400);
     } catch {}
-  }, []);
+  }, [playTone]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -215,7 +261,7 @@ export default function AttendanceScannerPage() {
     if (effectiveStatus !== 'active') {
       setScanResult(t('attendance.subscriptionExpired'));
       setResultType('expired');
-      speak('يرجى تجديد الاشتراك الخاص بكم');
+      speak('يرجى تجديد الاشتراك الخاص بكم', 'error');
       return;
     }
 
@@ -294,7 +340,7 @@ export default function AttendanceScannerPage() {
 
     setScanResult(t('attendance.checkInSuccess'));
     setResultType('success');
-    speak('تم تسجيل الدخول بنجاح');
+    speak('تم تسجيل الدخول بنجاح', 'success');
     setTodayCount(prev => prev + 1);
 
     // The history query was issued before this check-in existed — fold today's

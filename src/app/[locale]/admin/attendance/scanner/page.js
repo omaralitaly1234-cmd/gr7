@@ -38,21 +38,40 @@ export default function AttendanceScannerPage() {
   const html5QrCode = useRef(null);
 
   // Recorded Arabic voice clips for the front desk — one for a successful
-  // check-in, one for an expired subscription. Preloaded and re-used across
-  // scans so playback is instant.
+  // check-in, one for an expired subscription. Routed through a Web Audio
+  // GainNode so we can boost above the element's 100% cap (browsers hard-limit
+  // <audio>.volume at 1.0, and the source clips were low-level, so playback
+  // was too quiet for a noisy reception area).
   const successAudioRef = useRef(null);
   const expiredAudioRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const AUDIO_GAIN = 3;
   useEffect(() => {
     if (typeof window === 'undefined') return;
     successAudioRef.current = new Audio('/sounds/checkin-success.mp3');
     expiredAudioRef.current = new Audio('/sounds/checkin-expired.mp3');
     successAudioRef.current.preload = 'auto';
     expiredAudioRef.current.preload = 'auto';
+    successAudioRef.current.volume = 1;
+    expiredAudioRef.current.volume = 1;
   }, []);
   const playSound = useCallback((kind) => {
     const el = kind === 'success' ? successAudioRef.current : expiredAudioRef.current;
     if (!el) return;
     try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC && !audioCtxRef.current) {
+        audioCtxRef.current = new AC();
+        for (const audio of [successAudioRef.current, expiredAudioRef.current]) {
+          const src = audioCtxRef.current.createMediaElementSource(audio);
+          const gain = audioCtxRef.current.createGain();
+          gain.gain.value = AUDIO_GAIN;
+          src.connect(gain).connect(audioCtxRef.current.destination);
+        }
+      }
+      if (audioCtxRef.current?.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {});
+      }
       el.currentTime = 0;
       el.play().catch(err => console.warn('audio blocked:', err));
     } catch {}

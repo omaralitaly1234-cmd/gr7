@@ -85,11 +85,14 @@ export default function SubscriptionsPage() {
       const memberMap = await getTenantDocumentsByIds(tenantId, 'members', rows.map(s => s.memberId));
       setMembers([...memberMap.values()]);
 
+      // Active/expired/frozen count members (same source the members page uses)
+      // so the two screens can never drift. Total stays on the subscriptions
+      // collection because it's a historical figure — every renewal adds a row.
       const [total, active, expired, frozen] = await Promise.all([
         getTenantCollectionCount(tenantId, 'subscriptions'),
-        getTenantCollectionCount(tenantId, 'subscriptions', [{ field: 'status', operator: '==', value: 'active' }]),
-        getTenantCollectionCount(tenantId, 'subscriptions', [{ field: 'status', operator: '==', value: 'expired' }]),
-        getTenantCollectionCount(tenantId, 'subscriptions', [{ field: 'status', operator: '==', value: 'frozen' }]),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'active' }]),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'expired' }]),
+        getTenantCollectionCount(tenantId, 'members', [{ field: 'status', operator: '==', value: 'frozen' }]),
       ]);
       setStatusCounts({
         total: total.count || 0,
@@ -336,7 +339,9 @@ export default function SubscriptionsPage() {
           <div className="stat-icon gold">💳</div>
           <div className="stat-info">
             <div className="stat-value">{statusCounts.total}</div>
-            <div className="stat-label">{isAr ? 'إجمالي الاشتراكات' : 'Total'}</div>
+            <div className="stat-label" title={isAr ? 'كل وثائق الاشتراك (بيشمل التجديدات القديمة)' : 'All subscription documents (includes past renewals)'}>
+              {isAr ? 'إجمالي وثائق الاشتراك' : 'Subscription records'}
+            </div>
           </div>
         </div>
         <div className="stat-card">

@@ -337,13 +337,25 @@ export default function MembersPage() {
         };
         if (newPlan) {
           // Sessions already used stay used — only the ceiling and what remains
-          // are re-based on the new plan.
+          // are re-based on the new plan. `sessions: null` on a plan means
+          // unlimited (gold-monthly, diamond-*): preserve the null so the
+          // scanner keeps treating check-ins as unmetered — coercing null to 0
+          // would make it look like a spent session-limited plan and block
+          // every check-in.
           const usedSessions = Number(editDatesSub.usedSessions) || 0;
-          const newTotal = Number(newPlan.sessions) || 0;
+          const unlimited = newPlan.sessions === null
+            || newPlan.sessions === undefined
+            || newPlan.sessions === '';
           subPatch.planId = newPlan.planId || newPlan.id;
           subPatch.planSnapshot = newPlan;
-          subPatch.totalSessions = newTotal;
-          subPatch.remainingSessions = Math.max(0, newTotal - usedSessions);
+          if (unlimited) {
+            subPatch.totalSessions = null;
+            subPatch.remainingSessions = null;
+          } else {
+            const newTotal = Number(newPlan.sessions);
+            subPatch.totalSessions = newTotal;
+            subPatch.remainingSessions = Math.max(0, newTotal - usedSessions);
+          }
           subPatch.planEditedAt = Timestamp.fromDate(new Date());
           subPatch.planEditedBy = 'admin';
         }

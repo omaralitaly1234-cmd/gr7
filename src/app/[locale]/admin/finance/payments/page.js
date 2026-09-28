@@ -217,7 +217,10 @@ export default function PaymentsPage() {
               filteredPayments.map((pay, idx) => (
                 <tr key={pay.id}>
                   <td style={{ color: 'var(--pt-gray-500)' }}>{idx + 1}</td>
-                  <td style={{ fontWeight: 600 }}>{pay.memberName || '-'}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    {pay.memberName || '-'}
+                    {pay.reversalNote && <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--pt-danger, #e53935)', marginTop: 2 }}>{pay.reversalNote}</div>}
+                  </td>
                   <td><span className="badge badge-info" style={{ fontSize: '11px' }}>{typeLabels[pay.type] || pay.type}</span></td>
                   <td>{(pay.amount || 0).toLocaleString()} {t('common.egp')}</td>
                   <td style={{ color: pay.discount ? 'var(--pt-success)' : 'var(--pt-gray-600)' }}>

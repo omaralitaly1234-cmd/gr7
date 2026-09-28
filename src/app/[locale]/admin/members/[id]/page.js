@@ -12,7 +12,7 @@ import RenewSubscriptionModal from '@/components/RenewSubscriptionModal';
 import { setMemberCode } from '@/lib/firebase/member-codes';
 import { codeErrorMessage } from '@/lib/member-code';
 import { logAuditClient } from '@/lib/firebase/audit';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, increment } from 'firebase/firestore';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -46,6 +46,10 @@ export default function MemberProfilePage() {
   const [deleteStep, setDeleteStep] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const [showRenewModal, setShowRenewModal] = useState(false);
+  const [showEndModal, setShowEndModal] = useState(false);
+  const [endReason, setEndReason] = useState('');
+  const [ending, setEnding] = useState(false);
+  const [endAsMistake, setEndAsMistake] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetForm, setResetForm] = useState({ next: '', confirm: '' });
   const [resetting, setResetting] = useState(false);
@@ -153,6 +157,115 @@ export default function MemberProfilePage() {
       console.error('[Unfreeze]', err);
       toast.error(isAr ? 'حدث خطأ أثناء إلغاء التجميد' : 'Error unfreezing subscription');
     }
+  };
+
+  // Payments that paid for `sub`. New rows carry subscriptionId; older ones are
+  // matched by being a subscription payment written within minutes of the sub.
+  const paymentsForSub = (sub) => {
+    if (!sub) return [];
+    const subMs = sub.createdAt?.toMillis ? sub.createdAt.toMillis() : null;
+    return payments.filter(p => {
+      if (p.isReversal || p.reversed) return false;
+      if (p.subscriptionId) return p.subscriptionId === sub.id;
+      const payMs = p.createdAt?.toMillis ? p.createdAt.toMillis() : null;
+      return p.type === 'subscription' && subMs != null && payMs != null
+        && Math.abs(payMs - subMs) < 10 * 60 * 1000;
+    });
+  };
+
+  // Ends the current term immediately. When it was created by mistake, the money
+  // taken for it is reversed with a negative payment row (so every revenue total
+  // drops by it) and the original row is flagged, and the debt it added is cleared.
+  const handleEndSubscription = async () => {
+    const currentSub = subscriptions.find(s => s.status === 'active' || s.status === 'frozen');
+    if (!currentSub || !tenantId) return;
+    setEnding(true);
+    try {
+      const nowTs = Timestamp.fromDate(new Date());
+      const memberName = member?.fullName?.ar || member?.fullName?.en || '';
+      const toReverse = endAsMistake ? paymentsForSub(currentSub) : [];
+      let reversedTotal = 0;
+
+      for (const pay of toReverse) {
+        const net = Number(pay.netAmount ?? pay.amount) || 0;
+        if (net <= 0) continue;
+        const note = `⚠️ اشتراك خاطئ — تم خصم ${net.toLocaleString()} ج.م`;
+        const { id: revId, error: revError } = await addTenantDocument(tenantId, 'payments', {
+          memberId,
+          memberName,
+          type: pay.type || 'subscription',
+          referenceId: pay.referenceId || null,
+          subscriptionId: currentSub.id,
+          amount: -net,
+          discount: 0,
+          netAmount: -net,
+          method: pay.method || 'cash',
+          status: 'completed',
+          isReversal: true,
+          reversalOf: pay.id,
+          reversalNote: `↩️ خصم اشتراك خاطئ${pay.invoiceNumber ? ` (فاتورة ${pay.invoiceNumber})` : ''}`,
+          notes: endReason || 'اشتراك خاطئ',
+          receivedBy: 'admin',
+        });
+        if (revError) throw new Error(revError);
+        const { error: flagError } = await updateTenantDocument(tenantId, 'payments', pay.id, {
+          reversed: true,
+          reversedAt: nowTs,
+          reversedById: revId,
+          reversalNote: note,
+        });
+        if (flagError) throw new Error(flagError);
+        reversedTotal += net;
+      }
+
+      const { error } = await updateTenantDocument(tenantId, 'subscriptions', currentSub.id, {
+        status: endAsMistake ? 'cancelled' : 'expired',
+        endDate: nowTs,
+        endedEarlyAt: nowTs,
+        endedEarlyFromEndDate: currentSub.endDate || null,
+        endedEarlyReason: endReason || '',
+        currentFreezeStart: null,
+        ...(endAsMistake ? {
+          cancelledAsMistake: true,
+          refundedAmount: reversedTotal,
+          balanceDue: 0,
+          installments: [],
+        } : {}),
+      });
+      if (error) throw new Error(error);
+
+      const debtToClear = endAsMistake ? (Number(currentSub.balanceDue) || 0) : 0;
+      const { error: memberError } = await updateTenantDocument(tenantId, 'members', memberId, {
+        status: 'expired',
+        endDate: nowTs,
+        ...(member.currentPlan ? { 'currentPlan.endDate': nowTs } : {}),
+        ...(reversedTotal > 0 ? { totalSpent: increment(-reversedTotal) } : {}),
+        ...(debtToClear > 0 ? { balanceDue: increment(-debtToClear) } : {}),
+      });
+      if (memberError) throw new Error(memberError);
+
+      const planName = currentSub.planSnapshot?.name?.ar || currentSub.planId || '';
+      const planNameEn = currentSub.planSnapshot?.name?.en || currentSub.planId || '';
+      logAuditClient({
+        action: 'update', entity: 'subscription', entityId: currentSub.id, tenantId,
+        details: { description: {
+          en: `${endAsMistake ? 'Cancelled mistaken' : 'Ended'} subscription (${planNameEn}) for ${member?.fullName?.en || memberName}${reversedTotal ? ` — reversed ${reversedTotal} EGP` : ''}${endReason ? ` — ${endReason}` : ''}`,
+          ar: `${endAsMistake ? 'إلغاء اشتراك خاطئ' : 'إنهاء اشتراك'} ${memberName} (${planName})${reversedTotal ? ` — خصم ${reversedTotal} ج.م` : ''}${endReason ? ` — ${endReason}` : ''}`,
+        } },
+      });
+      toast.success(reversedTotal
+        ? (isAr ? `تم إنهاء الاشتراك وخصم ${reversedTotal.toLocaleString()} ج.م ✅` : `Subscription ended, ${reversedTotal.toLocaleString()} EGP reversed ✅`)
+        : (isAr ? 'تم إنهاء الاشتراك ✅' : 'Subscription ended ✅'));
+      setShowEndModal(false);
+      setEndReason('');
+      setEndAsMistake(false);
+      await loadMember();
+    } catch (err) {
+      console.error('[EndSubscription]', err);
+      toast.error(isAr ? 'حدث خطأ أثناء إنهاء الاشتراك' : 'Error ending subscription');
+      await loadMember();
+    }
+    setEnding(false);
   };
 
   const handleSendMessage = async () => {
@@ -412,6 +525,11 @@ export default function MemberProfilePage() {
               🔓 {t('subscriptions.unfreeze')}
             </button>
           )}
+          {activeSub && (
+            <button className="btn btn-outline btn-sm" onClick={() => setShowEndModal(true)} style={{ color: 'var(--pt-danger, #e53935)', borderColor: 'var(--pt-danger, #e53935)' }}>
+              ⛔ {isAr ? 'إنهاء الاشتراك' : 'End Subscription'}
+            </button>
+          )}
           <Link href={`/${locale}/admin/finance/payments?member=${memberId}`} className="btn btn-ghost btn-sm">
             💰 {isAr ? 'تسجيل دفعة' : 'Record Payment'}
           </Link>
@@ -569,7 +687,10 @@ export default function MemberProfilePage() {
                   {payments.map(pay => (
                     <tr key={pay.id}>
                       <td>{pay.createdAt?.toDate ? pay.createdAt.toDate().toLocaleDateString(isAr ? 'ar-EG' : 'en-US') : '-'}</td>
-                      <td><span className="badge badge-info">{pay.type}</span></td>
+                      <td>
+                        <span className="badge badge-info">{pay.type}</span>
+                        {pay.reversalNote && <div style={{ fontSize: 11, color: 'var(--pt-danger, #e53935)', marginTop: 2 }}>{pay.reversalNote}</div>}
+                      </td>
                       <td>{(pay.amount || 0).toLocaleString()} {t('common.egp')}</td>
                       <td style={{ color: 'var(--pt-success)' }}>{pay.discount ? `-${pay.discount.toLocaleString()}` : '-'}</td>
                       <td style={{ fontWeight: 700, color: 'var(--pt-gold)' }}>{(pay.netAmount || 0).toLocaleString()} {t('common.egp')}</td>
@@ -606,6 +727,60 @@ export default function MemberProfilePage() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* End Subscription Modal */}
+      {showEndModal && activeSub && (
+        <div className="modal-overlay" onClick={() => { if (!ending) setShowEndModal(false); }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>⛔ {isAr ? 'إنهاء الاشتراك' : 'End Subscription'}</h2>
+              <button onClick={() => { if (!ending) setShowEndModal(false); }} style={{ fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 'var(--space-4)' }}>
+                {isAr
+                  ? `سيتم إنهاء اشتراك "${activeSub.planSnapshot?.name?.ar || activeSub.planId || ''}" فوراً (كان ينتهي ${activeSub.endDate?.toDate ? activeSub.endDate.toDate().toLocaleDateString('ar-EG') : '-'}) وسيصبح العضو منتهي الاشتراك ولن يُسمح له بالدخول حتى التجديد.`
+                  : `The "${activeSub.planSnapshot?.name?.en || activeSub.planId || ''}" subscription (ending ${activeSub.endDate?.toDate ? activeSub.endDate.toDate().toLocaleDateString('en-US') : '-'}) will end now and the member will be blocked until renewed.`}
+              </p>
+              {(() => {
+                const linked = paymentsForSub(activeSub);
+                const total = linked.reduce((s, p) => s + (Number(p.netAmount ?? p.amount) || 0), 0);
+                return (
+                  <div style={{ marginBottom: 'var(--space-4)', padding: 'var(--space-3)', border: '1px solid var(--glass-border)', borderRadius: 8 }}>
+                    <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontWeight: 600 }}>
+                      <input type="checkbox" checked={endAsMistake} onChange={e => setEndAsMistake(e.target.checked)} />
+                      {isAr ? 'الاشتراك اتعمل بالخطأ — اخصم المدفوعات' : 'Created by mistake — reverse its payments'}
+                    </label>
+                    {endAsMistake && (
+                      <p style={{ marginTop: 'var(--space-2)', fontSize: 'var(--font-size-sm)', color: 'var(--pt-gray-500)' }}>
+                        {total > 0
+                          ? (isAr
+                            ? `هيتخصم ${total.toLocaleString()} ج.م من المدفوعات (${linked.length} دفعة) وهيتلغى أي مبلغ متبقي على الاشتراك ده.`
+                            : `${total.toLocaleString()} EGP (${linked.length} payment${linked.length > 1 ? 's' : ''}) will be reversed and any balance on this subscription cleared.`)
+                          : (isAr
+                            ? 'مفيش مدفوعات مسجلة للاشتراك ده — هيتلغى أي مبلغ متبقي عليه بس.'
+                            : 'No payments recorded for this subscription — only its outstanding balance will be cleared.')}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+              <div className="form-group">
+                <label className="form-label">{isAr ? 'السبب (اختياري)' : 'Reason (optional)'}</label>
+                <textarea className="form-input" value={endReason} rows={2}
+                  onChange={e => setEndReason(e.target.value)}
+                  placeholder={isAr ? 'مثال: تجديد بالخطأ' : 'e.g. Renewed by mistake'} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowEndModal(false)} disabled={ending}>{t('common.cancel')}</button>
+              <button className="btn btn-danger" onClick={handleEndSubscription} disabled={ending}>
+                {ending ? '...' : `⛔ ${isAr ? 'تأكيد الإنهاء' : 'Confirm End'}`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

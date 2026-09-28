@@ -218,7 +218,7 @@ export default function NewMemberPage() {
             )
           : [];
 
-        await addTenantDocument(tenantId, 'subscriptions', {
+        const { id: subscriptionId } = await addTenantDocument(tenantId, 'subscriptions', {
           memberId,
           planId: plan.planId || plan.id,
           planSnapshot: plan,
@@ -255,6 +255,7 @@ export default function NewMemberPage() {
             memberName: formData.fullNameAr,
             type: 'subscription',
             referenceId: plan.planId || plan.id,
+            subscriptionId: subscriptionId || null,
             amount: plan.price,
             discount: (plan.price * formData.discount) / 100,
             netAmount: money.paid,

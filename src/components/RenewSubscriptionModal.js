@@ -173,6 +173,7 @@ export default function RenewSubscriptionModal({
           memberName,
           type: 'subscription',
           referenceId: plan.planId || plan.id,
+          subscriptionId: newSubId,
           amount: plan.price,
           discount: (plan.price * discount) / 100,
           netAmount: money.paid,

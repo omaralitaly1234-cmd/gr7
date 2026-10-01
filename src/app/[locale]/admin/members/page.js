@@ -6,6 +6,8 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getTenantDocuments, updateTenantDocument, getTenantCollectionCount, getTenantPaginatedDocuments } from '@/lib/firebase/firestore';
 import { logAuditClient } from '@/lib/firebase/audit';
+import { searchMembersByName } from '@/lib/firebase/member-search';
+import { nameSearchTokens, NAME_TOKENS_FIELD } from '@/lib/name-search';
 import { useTenant } from '@/context/TenantContext';
 import { useMembershipPlans } from '@/lib/hooks/useMembershipPlans';
 import { Timestamp } from 'firebase/firestore';
@@ -109,9 +111,11 @@ export default function MembersPage() {
 
         if (searchQuery) {
           // Firestore has no substring search. Membership number and phone are
-          // matched by prefix (range query, index-friendly); the name is matched
-          // by prefix too. We run them as separate queries and merge, because
-          // Firestore can't OR across different fields in one query.
+          // matched by prefix (range query, index-friendly). The name is matched
+          // by ANY word of it via the nameTokens field ("النجار" finds
+          // "عمر علي النجار"), plus a prefix query on the full name for the
+          // one-letter case and any member not backfilled yet. Separate queries
+          // merged, because Firestore can't OR across different fields.
           const end = searchQuery + '';
           const prefixQueries = [
             [{ field: 'membershipNumber', operator: '>=', value: searchQuery },
@@ -121,17 +125,18 @@ export default function MembersPage() {
             [{ field: 'fullName.ar', operator: '>=', value: searchQuery },
              { field: 'fullName.ar', operator: '<=', value: end }],
           ];
-          const results = await Promise.all(
-            prefixQueries.map(f => getTenantDocuments(tenantId, 'members', f, null, PAGE_SIZE))
-          );
+          const [byWord, ...results] = await Promise.all([
+            searchMembersByName(tenantId, searchQuery, PAGE_SIZE),
+            ...prefixQueries.map(f => getTenantDocuments(tenantId, 'members', f, null, PAGE_SIZE)),
+          ]);
           const seen = new Set();
-          data = results.flatMap(r => r.data || []).filter(m => {
+          data = [...results.flatMap(r => r.data || []), ...byWord].filter(m => {
             if (seen.has(m.id)) return false;
             seen.add(m.id);
             return true;
           });
           // Apply the dropdown filters to the merged search hits in JS — the set
-          // is at most 3 × PAGE_SIZE rows, not the whole collection.
+          // is at most 4 × PAGE_SIZE rows, not the whole collection.
           if (statusFilter !== 'all') data = data.filter(m => m.status === statusFilter);
           if (genderFilter !== 'all') data = data.filter(m => m.gender === genderFilter);
           data = data.slice(0, PAGE_SIZE);
@@ -207,6 +212,7 @@ export default function MembersPage() {
           ar: nameAr,
           en: member.fullName?.en || nameAr,
         },
+        [NAME_TOKENS_FIELD]: nameSearchTokens({ ar: nameAr, en: member.fullName?.en || nameAr }),
         phone,
         // Only overwrite whatsapp when it was defaulting to the old phone.
         ...(member.whatsapp === member.phone || !member.whatsapp ? { whatsapp: phone } : {}),

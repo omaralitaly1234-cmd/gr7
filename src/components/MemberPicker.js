@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getTenantDocuments } from '@/lib/firebase/firestore';
+import { searchMembersByName } from '@/lib/firebase/member-search';
 
 const LIMIT = 15;
 
@@ -10,8 +11,9 @@ const LIMIT = 15;
  *
  * Replaces the `<select>` elements that were populated by loading the ENTIRE
  * members collection — fine at 2 members, a multi-megabyte download at 5k.
- * Queries run server-side by prefix on the Arabic name, the phone, and the
- * membership number, and are debounced so typing doesn't hammer Firestore.
+ * Queries run server-side: any word of the name (nameTokens), plus prefix on
+ * the Arabic name, the phone, and the membership number. Debounced so typing
+ * doesn't hammer Firestore.
  */
 export default function MemberPicker({
   tenantId,
@@ -50,12 +52,13 @@ export default function MemberPicker({
           [{ field: 'membershipNumber', operator: '>=', value: debounced },
            { field: 'membershipNumber', operator: '<=', value: debounced + '' }],
         ];
-        const res = await Promise.all(
-          queries.map(f => getTenantDocuments(tenantId, 'members', f, null, LIMIT))
-        );
+        const [byWord, ...res] = await Promise.all([
+          searchMembersByName(tenantId, debounced, LIMIT),
+          ...queries.map(f => getTenantDocuments(tenantId, 'members', f, null, LIMIT)),
+        ]);
         if (cancelled) return;
         const seen = new Set();
-        const merged = res.flatMap(r => r.data || []).filter(m => {
+        const merged = [...res.flatMap(r => r.data || []), ...byWord].filter(m => {
           if (seen.has(m.id) || m.status === 'archived') return false;
           seen.add(m.id);
           return true;

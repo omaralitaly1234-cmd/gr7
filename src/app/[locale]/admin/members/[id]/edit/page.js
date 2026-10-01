@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { getTenantDocument, updateTenantDocument } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { nameSearchTokens, NAME_TOKENS_FIELD } from '@/lib/name-search';
 import toast from 'react-hot-toast';
 
 export default function EditMemberPage() {
@@ -81,6 +82,7 @@ export default function EditMemberPage() {
     try {
       const updateData = {
         fullName: { ar: formData.fullNameAr, en: formData.fullNameEn || formData.fullNameAr },
+        [NAME_TOKENS_FIELD]: nameSearchTokens({ ar: formData.fullNameAr, en: formData.fullNameEn || formData.fullNameAr }),
         phone: formData.phone,
         whatsapp: formData.whatsapp || formData.phone,
         email: formData.email,

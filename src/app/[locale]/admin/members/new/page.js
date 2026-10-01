@@ -13,6 +13,7 @@ import { codeErrorMessage } from '@/lib/member-code';
 import { checkCodeAvailable } from '@/lib/firebase/member-codes';
 import { buildInstallmentSchedule, splitPayment } from '@/lib/installments';
 import { parseDateInput, toDateInputValue } from '@/lib/format';
+import { nameSearchTokens, NAME_TOKENS_FIELD } from '@/lib/name-search';
 import MemberCodeCard from '@/components/MemberCodeCard';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -172,6 +173,7 @@ export default function NewMemberPage() {
 
       const memberData = {
         fullName: { ar: formData.fullNameAr, en: formData.fullNameEn || formData.fullNameAr },
+        [NAME_TOKENS_FIELD]: nameSearchTokens({ ar: formData.fullNameAr, en: formData.fullNameEn || formData.fullNameAr }),
         phone: formData.phone,
         whatsapp: formData.whatsapp || formData.phone,
         email: formData.accountEmail || formData.email,

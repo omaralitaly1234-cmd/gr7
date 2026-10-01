@@ -2,6 +2,7 @@
 // Whitelisted fields only — prevents mass-assignment of status, membershipNumber,
 // assignedTrainer, currentPlan, uid, totalSpent, etc.
 import { resolveMemberContext, ok, fail, num } from '@/lib/api-member';
+import { nameSearchTokens, NAME_TOKENS_FIELD } from '@/lib/name-search';
 
 export async function POST(request) {
   const ctx = await resolveMemberContext(request);
@@ -14,6 +15,7 @@ export async function POST(request) {
   const update = {};
   if (body.fullName && typeof body.fullName === 'object') {
     update.fullName = { ar: str(body.fullName.ar) || '', en: str(body.fullName.en) || '' };
+    update[NAME_TOKENS_FIELD] = nameSearchTokens(update.fullName);
   }
   if (str(body.phone) !== undefined) update.phone = str(body.phone, 30);
   if (str(body.address) !== undefined) update.address = str(body.address);

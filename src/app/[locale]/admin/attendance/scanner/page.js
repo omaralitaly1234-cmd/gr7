@@ -8,6 +8,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import ScannedMemberPanel from '@/components/ScannedMemberPanel';
 import { findMemberByCode } from '@/lib/firebase/member-codes';
+import { searchMembersByName } from '@/lib/firebase/member-search';
 import { Timestamp, doc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 
@@ -121,19 +122,26 @@ export default function AttendanceScannerPage() {
   }, [tenantId, isAr]);
 
   // Check in by name, for the members who turn up knowing neither their code
-  // nor their phone number. Prefix search on the Arabic name — Firestore has no
-  // substring search, so this matches from the start of the name.
+  // nor their phone number. Matches any word of the name ("النجار" finds
+  // "عمر علي النجار"), plus a prefix query on the full name for members not
+  // backfilled with nameTokens yet.
   const runNameSearch = useCallback(async (raw) => {
     const term = raw.trim();
     if (!tenantId || term.length < 2) { setNameResults([]); return; }
     setNameSearching(true);
     try {
-      const { data, error } = await getTenantDocuments(tenantId, 'members', [
-        { field: 'fullName.ar', operator: '>=', value: term },
-        { field: 'fullName.ar', operator: '<=', value: term + '' },
-      ], null, 8);
+      const [{ data, error }, byWord] = await Promise.all([
+        getTenantDocuments(tenantId, 'members', [
+          { field: 'fullName.ar', operator: '>=', value: term },
+          { field: 'fullName.ar', operator: '<=', value: term + '' },
+        ], null, 8),
+        searchMembersByName(tenantId, term, 8),
+      ]);
       if (error) console.error('[Scanner] name search:', error);
-      setNameResults((data || []).filter(m => m.status !== 'archived'));
+      const seen = new Set();
+      setNameResults([...(data || []), ...byWord]
+        .filter(m => m.status !== 'archived' && !seen.has(m.id) && seen.add(m.id))
+        .slice(0, 8));
     } catch (err) {
       console.error('[Scanner] name search:', err);
       setNameResults([]);

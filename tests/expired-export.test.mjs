@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   buildExpiredRows, daysSinceExpiry, expiredExportFileName,
   EXPIRED_EXPORT_HEADERS, EXPIRED_EXPORT_WIDTHS,
+  buildActiveRows, daysUntilExpiry, activeExportFileName, ACTIVE_EXPORT_HEADERS,
 } from '../src/lib/expired-export.js';
 import { parseDateInput, toDateInputValue } from '../src/lib/format.js';
 
@@ -79,6 +80,36 @@ test('daysSinceExpiry never goes negative and tolerates a missing date', () => {
 test('the file name is date-stamped and ends in .xlsx', () => {
   assert.equal(expiredExportFileName(new Date(2026, 7, 24), 'ar'), 'الاشتراكات-المنتهية-2026-08-24.xlsx');
   assert.equal(expiredExportFileName(new Date(2026, 7, 24), 'en'), 'expired-subscriptions-2026-08-24.xlsx');
+});
+
+// ── Active-subscription export ──
+
+test('the active sheet has the same columns, with days left in place of days since expiry', () => {
+  const ar = ACTIVE_EXPORT_HEADERS.ar;
+  const [row] = buildActiveRows([sub], members, { locale: 'ar', nowMs: new Date(2026, 5, 21).getTime() });
+  assert.equal(row[ar.daysLeft], 10);
+  assert.equal(row[AR.daysSince], undefined);
+  assert.equal(row[ar.name], 'أحمد محمد');
+  assert.equal(row[ar.phone], '01012345678');
+  assert.equal(Object.keys(row).length, EXPIRED_EXPORT_WIDTHS.length);
+  // Same column positions as the expired sheet, so the widths line up.
+  const [expiredRow] = buildExpiredRows([sub], members);
+  const expiredKeys = Object.keys(expiredRow);
+  Object.keys(row).forEach((k, i) => {
+    if (k !== ar.daysLeft) assert.equal(k, expiredKeys[i]);
+  });
+});
+
+test('daysUntilExpiry rounds up like the table and never goes negative', () => {
+  const now = new Date(2026, 6, 1, 12).getTime();
+  assert.equal(daysUntilExpiry(new Date(2026, 6, 1, 20), now), 1, 'ends later today');
+  assert.equal(daysUntilExpiry(new Date(2026, 5, 1), now), 0, 'already past');
+  assert.equal(daysUntilExpiry(null, now), 0);
+});
+
+test('the active file name is date-stamped and ends in .xlsx', () => {
+  assert.equal(activeExportFileName(new Date(2026, 9, 1), 'ar'), 'الاشتراكات-النشطة-2026-10-01.xlsx');
+  assert.equal(activeExportFileName(new Date(2026, 9, 1), 'en'), 'active-subscriptions-2026-10-01.xlsx');
 });
 
 // ── The date-input helpers the manual subscription start date relies on ──

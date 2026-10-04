@@ -2,8 +2,7 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import {
   initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
+  memoryLocalCache,
   getFirestore,
 } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
@@ -23,15 +22,19 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0
 
 export const auth = getAuth(app);
 
-// Initialize Firestore with persistent cache (modern API — replaces deprecated enableIndexedDbPersistence)
+// Firestore cache: in MEMORY, not IndexedDB.
+//
+// The persistent (IndexedDB) cache made searches slower the longer an admin
+// used the app: every member doc ever read (the Excel exports alone read
+// thousands) stayed in the browser, each query was also run against that
+// growing local copy, and every result was written back to it. Nothing reads
+// from the local cache on purpose — check-in is a transaction and needs the
+// network anyway — and repeat reads are already served by ./read-cache.
 let db;
 if (typeof window !== 'undefined' && getApps().length === 1) {
-  // Client-side: enable persistent cache with multi-tab support
   try {
     db = initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager(),
-      }),
+      localCache: memoryLocalCache(),
     });
   } catch {
     // Fallback if already initialized (e.g., HMR in dev)

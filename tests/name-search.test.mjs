@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   nameSearchTokens, normalizeName, searchWords, primarySearchWord, memberMatchesName,
+  planMemberSearch,
 } from '../src/lib/name-search.js';
 
 const omar = { fullName: { ar: 'عمر علي النجار', en: 'Omar Ali Elnagar' } };
@@ -80,4 +81,33 @@ test('missing or odd names produce no tokens rather than throwing', () => {
 test('tokens are unique', () => {
   const tokens = nameSearchTokens({ ar: 'محمد محمد', en: 'محمد' });
   assert.equal(new Set(tokens).size, tokens.length);
+});
+
+// ── Which queries a search box runs — fewer queries, faster results ──
+
+test('an Arabic name runs only the name search — never phone or code', () => {
+  assert.deepEqual(planMemberSearch('النجار'), { code: null, phone: null, name: true, namePrefix: null });
+  assert.deepEqual(planMemberSearch('علي النجار'), { code: null, phone: null, name: true, namePrefix: null });
+});
+
+test('one Arabic letter falls back to a prefix on the full name', () => {
+  assert.deepEqual(planMemberSearch('ع'), { code: null, phone: null, name: false, namePrefix: 'ع' });
+});
+
+test('digits search code and phone only, never the name', () => {
+  assert.deepEqual(planMemberSearch('7470'), { code: '7470', phone: '7470', name: false, namePrefix: null });
+  assert.deepEqual(planMemberSearch('+0100'), { code: '0100', phone: '+0100', name: false, namePrefix: null });
+});
+
+test('Arabic-Indic digits are searched as Latin digits', () => {
+  assert.deepEqual(planMemberSearch('٠١٠١'), { code: '0101', phone: '0101', name: false, namePrefix: null });
+});
+
+test('Latin letters search an upper-cased code and the English name', () => {
+  assert.deepEqual(planMemberSearch('omar'), { code: 'OMAR', phone: null, name: true, namePrefix: null });
+});
+
+test('an empty search runs nothing', () => {
+  assert.deepEqual(planMemberSearch('   '), { code: null, phone: null, name: false, namePrefix: null });
+  assert.deepEqual(planMemberSearch(undefined), { code: null, phone: null, name: false, namePrefix: null });
 });

@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getTenantDocuments } from '@/lib/firebase/firestore';
-import { searchMembersByName } from '@/lib/firebase/member-search';
+import { searchMembers } from '@/lib/firebase/member-search';
 
 const LIMIT = 15;
 
@@ -11,9 +10,9 @@ const LIMIT = 15;
  *
  * Replaces the `<select>` elements that were populated by loading the ENTIRE
  * members collection — fine at 2 members, a multi-megabyte download at 5k.
- * Queries run server-side: any word of the name (nameTokens), plus prefix on
- * the Arabic name, the phone, and the membership number. Debounced so typing
- * doesn't hammer Firestore.
+ * Queries run server-side through searchMembers — any word of the name, or a
+ * phone / membership-number prefix, only the ones that can match what was
+ * typed. Debounced so typing doesn't hammer Firestore.
  */
 export default function MemberPicker({
   tenantId,
@@ -32,7 +31,7 @@ export default function MemberPicker({
   const boxRef = useRef(null);
 
   useEffect(() => {
-    const id = setTimeout(() => setDebounced(term.trim()), 300);
+    const id = setTimeout(() => setDebounced(term.trim()), 250);
     return () => clearTimeout(id);
   }, [term]);
 
@@ -42,28 +41,9 @@ export default function MemberPicker({
     (async () => {
       setLoading(true);
       try {
-        // Firestore can't OR across fields, so run one prefix query per field
-        // and merge. Each is capped at LIMIT rows.
-        const queries = [
-          [{ field: 'fullName.ar', operator: '>=', value: debounced },
-           { field: 'fullName.ar', operator: '<=', value: debounced + '' }],
-          [{ field: 'phone', operator: '>=', value: debounced },
-           { field: 'phone', operator: '<=', value: debounced + '' }],
-          [{ field: 'membershipNumber', operator: '>=', value: debounced },
-           { field: 'membershipNumber', operator: '<=', value: debounced + '' }],
-        ];
-        const [byWord, ...res] = await Promise.all([
-          searchMembersByName(tenantId, debounced, LIMIT),
-          ...queries.map(f => getTenantDocuments(tenantId, 'members', f, null, LIMIT)),
-        ]);
+        const found = await searchMembers(tenantId, debounced, LIMIT);
         if (cancelled) return;
-        const seen = new Set();
-        const merged = [...res.flatMap(r => r.data || []), ...byWord].filter(m => {
-          if (seen.has(m.id) || m.status === 'archived') return false;
-          seen.add(m.id);
-          return true;
-        });
-        setResults(merged.slice(0, LIMIT));
+        setResults(found);
       } catch (err) {
         console.error('Member search failed:', err);
       }

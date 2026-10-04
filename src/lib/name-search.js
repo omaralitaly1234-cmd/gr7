@@ -100,6 +100,46 @@ export function primarySearchWord(query) {
 }
 
 /**
+ * Decide which member queries a search box actually needs.
+ *
+ * Every search used to fire the same four queries (code, phone, name prefix,
+ * name word) and wait for the slowest — ~1 s from the gym — although an Arabic
+ * name can never match a phone or a code, and a number can never match a name.
+ *
+ * @returns {{ code: string|null, phone: string|null, name: boolean, namePrefix: string|null }}
+ *   code       — prefix to match membershipNumber against (codes are upper-case)
+ *   phone      — prefix to match phone against, as typed
+ *   name       — run the any-word name search
+ *   namePrefix — one-letter fallback: range on fullName.ar (words are ≥ 2 letters)
+ */
+export function planMemberSearch(raw) {
+  const term = String(raw ?? '')
+    .trim()
+    // Arabic-Indic digits → Latin, so "٠١٠" finds the phone stored as "010".
+    .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660));
+  const plan = { code: null, phone: null, name: false, namePrefix: null };
+  if (!term) return plan;
+
+  if (/[؀-ۿ]/.test(term)) {
+    // Arabic letters: only ever a name.
+    if (primarySearchWord(term)) plan.name = true;
+    else plan.namePrefix = term;
+  } else if (/^[\d\s+\-()]+$/.test(term)) {
+    // Digits: a member code or a phone number. The phone is matched as typed —
+    // a few are stored with "+" or spaces, and stripping those would stop the
+    // exact form from matching. Codes never contain either.
+    plan.phone = term;
+    const code = term.replace(/[^\dA-Za-z_-]/g, '');
+    if (code) plan.code = code;
+  } else {
+    // Latin letters: a letter-bearing code, or an English name.
+    plan.code = term.replace(/\s+/g, '').toUpperCase();
+    plan.name = !!primarySearchWord(term);
+  }
+  return plan;
+}
+
+/**
  * Does this member match EVERY word typed? The server query only filters on
  * one word, so "علي النجار" is narrowed down here.
  */

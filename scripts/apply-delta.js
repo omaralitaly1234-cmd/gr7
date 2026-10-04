@@ -55,7 +55,7 @@ function mapPlan(name) {
   if (p.includes('١٢ كلاس') || p.match(/12\s*كلاس(?!\s*3)/))
     return { planId: 'gold-12sessions', type: 'gold', duration: 30, sessions: 12 };
   if (p.includes('12 كلاس 3') || p.includes('12 كلاس 3شهور'))
-    return { planId: 'gold-12sessions-3m', type: 'gold', duration: 90, sessions: 12 };
+    return { planId: 'gold-12sessions-3m', type: 'gold', duration: 90, sessions: 36 }; // 12 a month × 3 months
   if (p.includes('16 كلاس'))
     return { planId: 'gold-16sessions', type: 'gold', duration: 30, sessions: 16 };
   if (p.includes('8كلاس') || p.includes('8 كلاس'))

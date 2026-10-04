@@ -79,7 +79,7 @@ function mapPlan(arabicPlanName) {
     return { planId: 'gold-12sessions', type: 'gold', duration: 30, sessions: 12 };
   }
   if (p.includes('12 كلاس 3') || p.includes('12 كلاس 3شهور')) {
-    return { planId: 'gold-12sessions-3m', type: 'gold', duration: 90, sessions: 12 };
+    return { planId: 'gold-12sessions-3m', type: 'gold', duration: 90, sessions: 36 }; // 12 a month × 3 months
   }
   if (p.includes('16 كلاس')) {
     return { planId: 'gold-16sessions', type: 'gold', duration: 30, sessions: 16 };

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   nameSearchTokens, normalizeName, searchWords, primarySearchWord, memberMatchesName,
-  planMemberSearch,
+  planMemberSearch, primarySearchPair,
 } from '../src/lib/name-search.js';
 
 const omar = { fullName: { ar: 'عمر علي النجار', en: 'Omar Ali Elnagar' } };
@@ -110,4 +110,32 @@ test('Latin letters search an upper-cased code and the English name', () => {
 test('an empty search runs nothing', () => {
   assert.deepEqual(planMemberSearch('   '), { code: null, phone: null, name: false, namePrefix: null });
   assert.deepEqual(planMemberSearch(undefined), { code: null, phone: null, name: false, namePrefix: null });
+});
+
+// ── Two words typed: one exact query on the neighbouring-words token ──
+
+test('neighbouring words are stored together, the second as a prefix', () => {
+  const tokens = nameSearchTokens({ ar: 'محمد عز ك/ نائل' });
+  assert.ok(tokens.includes('محمد عز'));
+  // "ك" is skipped, so the trainer's name pairs with the word before it.
+  assert.ok(tokens.includes('عز نا'));
+  assert.ok(tokens.includes('عز نايل'));
+  assert.ok(tokens.every(t => !t.includes(' ك')));
+});
+
+test('the pair searched is what the stored tokens hold', () => {
+  const m = { fullName: { ar: 'محمد عز ك/ نائل' } };
+  for (const typed of ['محمد عز', 'محمد عز ك/ نا', 'محمد عز نائل']) {
+    assert.ok(nameSearchTokens(m.fullName).includes(primarySearchPair(typed)), typed);
+    assert.ok(memberMatchesName(m, typed), typed);
+  }
+  assert.equal(primarySearchPair('محمد'), null);
+  assert.equal(primarySearchPair('محمد ع'), null);
+});
+
+test('pair tokens come after the word tokens and stay under the cap', () => {
+  const tokens = nameSearchTokens({ ar: 'محمد إبراهيم أبو العز كيك بوكس ك/أسامة سمير' });
+  assert.ok(tokens.length <= 150);
+  const firstPair = tokens.findIndex(t => t.includes(' '));
+  assert.ok(tokens.slice(firstPair).every(t => t.includes(' ')));
 });

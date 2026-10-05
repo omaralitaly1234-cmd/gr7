@@ -74,6 +74,20 @@ export function nameSearchTokens(fullName) {
       if ((w === 'عبد' || w === 'ابو') && ws[i + 1]) addPrefixes(w + ws[i + 1]);
     });
   }
+
+  // Then each word followed by the start of the next ("محمد عز"), so two words
+  // typed in order are one exact query instead of a scan of the 1600 members
+  // called محمد. Added last: if MAX_TOKENS ever bites, these go first.
+  // One-letter words ("ك" in "ك/نائل") are skipped, as they are in searches.
+  for (const name of names) {
+    const ws = words(name).filter(w => w.length >= MIN_TOKEN);
+    for (let i = 0; i + 1 < ws.length; i++) {
+      const first = ws[i].slice(0, MAX_TOKEN) + ' ';
+      const next = ws[i + 1];
+      const end = Math.min(next.length, MAX_TOKEN);
+      for (let j = MIN_TOKEN; j <= end; j++) out.add(first + next.slice(0, j));
+    }
+  }
   return [...out].slice(0, MAX_TOKENS);
 }
 
@@ -97,6 +111,20 @@ export function primarySearchWord(query) {
   const ws = searchWords(query);
   if (ws.length === 0) return null;
   return ws.reduce((a, b) => (b.length > a.length ? b : a));
+}
+
+/**
+ * Two neighbouring words typed, as stored by nameSearchTokens ("محمد عز"), or
+ * null for a one-word search. The longest pair is the most selective.
+ */
+export function primarySearchPair(query) {
+  const ws = searchWords(query);
+  let best = null;
+  for (let i = 0; i + 1 < ws.length; i++) {
+    const pair = `${ws[i]} ${ws[i + 1]}`;
+    if (!best || pair.length > best.length) best = pair;
+  }
+  return best;
 }
 
 /**

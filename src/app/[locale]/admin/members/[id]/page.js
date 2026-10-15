@@ -50,6 +50,11 @@ export default function MemberProfilePage() {
   const [endReason, setEndReason] = useState('');
   const [ending, setEnding] = useState(false);
   const [endAsMistake, setEndAsMistake] = useState(false);
+  // Destructive actions are typed, not clicked: a member with a running
+  // subscription was archived by a stray click through an "are you sure?" box.
+  // Ending a subscription needs the member code; the permanent delete, the word.
+  const [endConfirmText, setEndConfirmText] = useState('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetForm, setResetForm] = useState({ next: '', confirm: '' });
   const [resetting, setResetting] = useState(false);
@@ -176,9 +181,16 @@ export default function MemberProfilePage() {
   // Ends the current term immediately. When it was created by mistake, the money
   // taken for it is reversed with a negative payment row (so every revenue total
   // drops by it) and the original row is flagged, and the debt it added is cleared.
+  const endConfirmWord = member?.membershipNumber
+    ? String(member.membershipNumber)
+    : (isAr ? 'إلغاء' : 'end');
+  const endConfirmed = endConfirmText.trim() === endConfirmWord;
+  const deleteConfirmWord = isAr ? 'أرشفة' : 'archive';
+  const deleteConfirmed = deleteConfirmText.trim() === deleteConfirmWord;
+
   const handleEndSubscription = async () => {
     const currentSub = subscriptions.find(s => s.status === 'active' || s.status === 'frozen');
-    if (!currentSub || !tenantId) return;
+    if (!currentSub || !tenantId || !endConfirmed) return;
     setEnding(true);
     try {
       const nowTs = Timestamp.fromDate(new Date());
@@ -386,7 +398,7 @@ export default function MemberProfilePage() {
   // Runs server-side (Admin SDK) because the cascade spans ~17 collections and
   // the member's Auth account, which the client SDK cannot touch.
   const handleDeleteMember = async () => {
-    if (!tenantId || !memberId || deleting) return;
+    if (!tenantId || !memberId || deleting || !deleteConfirmed) return;
     setDeleting(true);
     try {
       const res = await authPost('/api/admin/members/delete', { tenantId, memberId });
@@ -526,7 +538,7 @@ export default function MemberProfilePage() {
             </button>
           )}
           {activeSub && (
-            <button className="btn btn-outline btn-sm" onClick={() => setShowEndModal(true)} style={{ color: 'var(--pt-danger, #e53935)', borderColor: 'var(--pt-danger, #e53935)' }}>
+            <button className="btn btn-outline btn-sm" onClick={() => { setEndConfirmText(''); setShowEndModal(true); }} style={{ color: 'var(--pt-danger, #e53935)', borderColor: 'var(--pt-danger, #e53935)' }}>
               ⛔ {isAr ? 'إنهاء الاشتراك' : 'End Subscription'}
             </button>
           )}
@@ -560,7 +572,7 @@ export default function MemberProfilePage() {
           {canDelete && (
             <button
               className="btn btn-sm"
-              onClick={() => setDeleteStep(1)}
+              onClick={() => { setDeleteConfirmText(''); setDeleteStep(1); }}
               style={{
                 marginInlineStart: 'auto',
                 background: 'var(--pt-danger-bg)',
@@ -773,10 +785,18 @@ export default function MemberProfilePage() {
                   onChange={e => setEndReason(e.target.value)}
                   placeholder={isAr ? 'مثال: تجديد بالخطأ' : 'e.g. Renewed by mistake'} />
               </div>
+              <div className="form-group">
+                <label className="form-label">
+                  {isAr ? 'للتأكيد اكتب كود العضو' : 'To confirm, type the member code'}: <strong>{endConfirmWord}</strong>
+                </label>
+                <input className="form-input" value={endConfirmText} dir="auto"
+                  onChange={e => setEndConfirmText(e.target.value)}
+                  style={{ textAlign: 'center' }} />
+              </div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowEndModal(false)} disabled={ending}>{t('common.cancel')}</button>
-              <button className="btn btn-danger" onClick={handleEndSubscription} disabled={ending}>
+              <button className="btn btn-danger" onClick={handleEndSubscription} disabled={ending || !endConfirmed}>
                 {ending ? '...' : `⛔ ${isAr ? 'تأكيد الإنهاء' : 'Confirm End'}`}
               </button>
             </div>
@@ -1133,12 +1153,19 @@ export default function MemberProfilePage() {
                   ? 'لا يمكن التراجع عن هذه الخطوة ولا يمكن استرجاع البيانات. هل أنت متأكد؟'
                   : 'This action cannot be undone and the data cannot be recovered. Are you sure?'}
               </p>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-sm)', margin: 'var(--space-4) 0 var(--space-2)' }}>
+                {isAr ? 'للتأكيد اكتب' : 'To confirm, type'} <strong>{deleteConfirmWord}</strong>
+              </label>
+              <input className="form-input" value={deleteConfirmText} dir="auto" autoFocus
+                onChange={e => setDeleteConfirmText(e.target.value)}
+                disabled={deleting}
+                style={{ textAlign: 'center' }} />
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setDeleteStep(0)} disabled={deleting}>
                 {t('common.cancel')}
               </button>
-              <button className="btn btn-danger" onClick={handleDeleteMember} disabled={deleting}>
+              <button className="btn btn-danger" onClick={handleDeleteMember} disabled={deleting || !deleteConfirmed}>
                 {deleting ? '⏳' : '🗑️'} {isAr ? 'نعم، احذف نهائياً' : 'Yes, delete permanently'}
               </button>
             </div>

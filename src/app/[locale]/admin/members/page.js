@@ -30,6 +30,10 @@ export default function MembersPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [counts, setCounts] = useState({ total: 0, active: 0, expired: 0, frozen: 0 });
   const [showDeleteModal, setShowDeleteModal] = useState(null);
+  // Archiving is typed, not clicked: a member with a running subscription was
+  // archived by a stray click through the old "are you sure?" box.
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [archiving, setArchiving] = useState(false);
   // Inline row edit: id of the row being edited, plus the working values.
   // Only the two fields the desk actually fixes on the fly — name (ar) and
   // phone — are editable here; the full edit page still owns everything else.
@@ -403,8 +407,23 @@ export default function MembersPage() {
     setSavingDates(false);
   };
 
+  const memberToArchive = showDeleteModal ? members.find(m => m.id === showDeleteModal) : null;
+  // What the desk types to confirm: the member code, or the word itself when
+  // the member has none.
+  const archiveConfirmWord = memberToArchive?.membershipNumber
+    ? String(memberToArchive.membershipNumber)
+    : (locale === 'ar' ? 'أرشفة' : 'archive');
+  const archiveConfirmed = deleteConfirmText.trim() === archiveConfirmWord;
+  const closeDeleteModal = () => {
+    if (archiving) return;
+    setShowDeleteModal(null);
+    setDeleteConfirmText('');
+  };
+
   const handleDelete = async (memberId) => {
-    if (!tenantId) return;
+    if (!tenantId || !archiveConfirmed || archiving) return;
+    setArchiving(true);
+    const archived = members.find(m => m.id === memberId);
     // Soft-delete: archive the member and cancel their active/frozen
     // subscriptions. Payments and attendance are kept as financial history
     // (a hard delete would orphan them).
@@ -422,11 +441,14 @@ export default function MembersPage() {
           }
         }
       } catch (e) { console.error('subscription cleanup failed:', e); }
-      logAuditClient({ action: 'delete', entity: 'member', entityId: memberId, tenantId, severity: 'warning', details: { description: { en: 'Archived member', ar: 'أرشفة عضو' } } });
+      const who = archived?.fullName?.ar || memberId;
+      logAuditClient({ action: 'delete', entity: 'member', entityId: memberId, tenantId, severity: 'warning', details: { description: { en: `Archived member ${who}`, ar: `أرشفة عضو — ${who}` } } });
       setMembers(members.filter(m => m.id !== memberId));
       setCounts(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }));
     }
+    setArchiving(false);
     setShowDeleteModal(null);
+    setDeleteConfirmText('');
   };
 
   return (
@@ -837,24 +859,45 @@ export default function MembersPage() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && (
-        <div className="modal-overlay" onClick={() => setShowDeleteModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+        <div className="modal-overlay" onClick={closeDeleteModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440, border: '1px solid var(--pt-danger)' }}>
             <div className="modal-header">
-              <h2>⚠️ {t('common.confirm')}</h2>
-              <button onClick={() => setShowDeleteModal(null)} style={{ fontSize: '1.2rem' }}>✕</button>
+              <h2 style={{ color: 'var(--pt-danger)' }}>⚠️ {locale === 'ar' ? 'أرشفة عضو' : 'Archive member'}</h2>
+              <button onClick={closeDeleteModal} style={{ fontSize: '1.2rem' }}>✕</button>
             </div>
             <div className="modal-body" style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '3rem', marginBottom: 'var(--space-4)' }}>🗑️</div>
-              <p style={{ marginBottom: 'var(--space-2)' }}>
-                {locale === 'ar' ? 'هل أنت متأكد من حذف هذا العضو؟' : 'Are you sure you want to delete this member?'}
+              <div style={{ fontSize: '3rem', marginBottom: 'var(--space-3)' }}>🗄️</div>
+              <p style={{ fontWeight: 800, fontSize: 'var(--font-size-lg)', marginBottom: 'var(--space-1)' }}>
+                {memberToArchive?.fullName?.ar || memberToArchive?.fullName?.en || '—'}
               </p>
-              <p style={{ color: 'var(--pt-danger)', fontSize: 'var(--font-size-sm)' }}>
-                {locale === 'ar' ? 'لا يمكن التراجع عن هذا الإجراء' : 'This action cannot be undone'}
+              {memberToArchive?.membershipNumber && (
+                <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)' }}>
+                  {locale === 'ar' ? 'كود العضو' : 'Member code'}: <strong>{memberToArchive.membershipNumber}</strong>
+                </p>
+              )}
+              <p style={{ color: 'var(--pt-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+                {locale === 'ar'
+                  ? 'سيختفي العضو من البحث والحضور، وسيُلغى اشتراكه الحالي.'
+                  : 'The member will disappear from search and attendance, and their current subscription will be cancelled.'}
               </p>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-2)' }}>
+                {locale === 'ar' ? 'للتأكيد اكتب' : 'To confirm, type'} <strong>{archiveConfirmWord}</strong>
+              </label>
+              <input
+                className="form-input"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && archiveConfirmed) handleDelete(showDeleteModal); }}
+                autoFocus
+                dir="auto"
+                style={{ textAlign: 'center' }}
+              />
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowDeleteModal(null)}>{t('common.cancel')}</button>
-              <button className="btn btn-danger" onClick={() => handleDelete(showDeleteModal)}>{t('common.delete')}</button>
+              <button className="btn btn-secondary" onClick={closeDeleteModal} disabled={archiving}>{t('common.cancel')}</button>
+              <button className="btn btn-danger" onClick={() => handleDelete(showDeleteModal)} disabled={!archiveConfirmed || archiving}>
+                {archiving ? '⏳' : '🗄️'} {locale === 'ar' ? 'أرشفة' : 'Archive'}
+              </button>
             </div>
           </div>
         </div>

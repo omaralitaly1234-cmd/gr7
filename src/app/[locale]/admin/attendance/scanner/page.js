@@ -185,8 +185,12 @@ export default function AttendanceScannerPage() {
       .filter(s => {
         const end = s.endDate?.toDate ? s.endDate.toDate() : null;
         // A cancelled sub is a real cancellation — don't resurrect one just
-        // because its endDate happens to still be in the future.
-        return end && end.getTime() > nowMs && s.status !== 'cancelled';
+        // because its endDate happens to still be in the future. Nor a renewed
+        // one: its term was replaced by the renewal. An old term whose dates
+        // were edited past the renewal's end won here, was flipped back to
+        // 'active' with 0 sessions left, and the member read as finished.
+        return end && end.getTime() > nowMs && s.status !== 'cancelled'
+          && s.status !== 'renewed' && !s.renewedToSubId;
       })
       .sort((a, b) => {
         const ae = a.endDate?.toDate ? a.endDate.toDate().getTime() : 0;

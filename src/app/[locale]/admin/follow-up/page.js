@@ -127,11 +127,13 @@ export default function FollowUpPage() {
     const since = Timestamp.fromDate(new Date(Date.now() - FOLLOW_UP_LOOKBACK_DAYS * MS_PER_DAY));
     const chunks = [];
     for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
-    // Index: follow_ups (memberId ASC, createdAt DESC).
+    // Index: follow_ups (memberId ASC, createdAt DESC). The explicit DESC sort
+    // is what makes this index apply — a bare range filter sorts ASC and would
+    // need a different index.
     const results = await Promise.all(chunks.map(chunk => getTenantDocuments(tenantId, FOLLOW_UPS_COLLECTION, [
       { field: 'memberId', operator: 'in', value: chunk },
       { field: 'createdAt', operator: '>=', value: since },
-    ])));
+    ], { field: 'createdAt', direction: 'desc' })));
     const failed = results.find(r => r.error);
     if (failed) console.warn('[FollowUp] follow-up lookup failed (index deployed?):', failed.error);
     return results.flatMap(r => r.data || []);

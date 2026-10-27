@@ -3,14 +3,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
-import { getTenantDocuments, getTenantCollectionCount, updateTenantDocument } from '@/lib/firebase/firestore';
+import { getTenantDocuments, getTenantDocument, getTenantCollectionCount, updateTenantDocument } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import ScannedMemberPanel from '@/components/ScannedMemberPanel';
 import { findMemberByCode } from '@/lib/firebase/member-codes';
 import { searchMembers } from '@/lib/firebase/member-search';
-import { Timestamp, doc, runTransaction } from 'firebase/firestore';
+import { Timestamp, doc, getDoc, setDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
+import {
+  DEFAULT_EXPIRY_WARNING, toExpiryWarningSettings, computeExpiryWarning,
+  expiryWarningText, expiryNotificationId,
+} from '@/lib/expiry-warning';
 
 export default function AttendanceScannerPage() {
   const t = useTranslations();
@@ -35,6 +39,10 @@ export default function AttendanceScannerPage() {
   const [nameQuery, setNameQuery] = useState('');
   const [nameResults, setNameResults] = useState([]);
   const [nameSearching, setNameSearching] = useState(false);
+  // "Subscription ending soon" for the member just checked in — stays up with
+  // the member card, unlike the 4-second success banner.
+  const [expiryWarning, setExpiryWarning] = useState(null);
+  const warningSettingsRef = useRef(DEFAULT_EXPIRY_WARNING);
   const scannerRef = useRef(null);
   const html5QrCode = useRef(null);
 
@@ -78,6 +86,15 @@ export default function AttendanceScannerPage() {
     } catch {}
   }, []);
 
+  // The gym's expiry-warning options (admin/settings → notifications). Read once
+  // per page load; a missing document keeps the defaults.
+  useEffect(() => {
+    if (!tenantId) return;
+    getTenantDocument(tenantId, 'config', 'settings')
+      .then(({ data }) => { warningSettingsRef.current = toExpiryWarningSettings(data || {}); })
+      .catch(err => console.warn('[Scanner] settings:', err));
+  }, [tenantId]);
+
   // Today's tally + the five most recent scans. The count is a server-side
   // aggregation and the list is capped at five: this used to download every
   // check-in of the day just to call .length and slice(0, 5) off it, on a page
@@ -111,6 +128,7 @@ export default function AttendanceScannerPage() {
         setMemberData(null);
         setMemberHistory([]);
         setMemberSub(null);
+        setExpiryWarning(null);
         return;
       }
       return processCheckIn(member);
@@ -163,8 +181,39 @@ export default function AttendanceScannerPage() {
     setHistoryLoading(false);
   }, [tenantId]);
 
+  // Drop the member a notification in their app. Fire-and-forget: the id is
+  // fixed per subscription and step, so a double-scan or a second visit the
+  // same day finds it already there and does not send it again.
+  const sendExpiryNotification = async (memberId, subscriptionId, warning) => {
+    try {
+      const text = expiryWarningText(warning);
+      const ref = doc(db, `tenants/${tenantId}/notifications/${expiryNotificationId(subscriptionId, warning)}`);
+      if ((await getDoc(ref)).exists()) return;
+      const lang = isAr ? 'ar' : 'en';
+      await setDoc(ref, {
+        memberId,
+        subscriptionId: subscriptionId || null,
+        title: text.title[lang],
+        body: text.body[lang],
+        message: text.body[lang],
+        type: 'renewal',
+        target: 'individual',
+        icon: '⏳',
+        status: 'sent',
+        read: false,
+        source: 'checkin_expiry_warning',
+        sentAt: Timestamp.fromDate(new Date()),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.warn('[Scanner] expiry notification:', err);
+    }
+  };
+
   const processCheckIn = async (member) => {
     setMemberData(member);
+    setExpiryWarning(null);
     loadMemberContext(member.id);
 
     // The member doc's `status` field is denormalised — it can drift out of
@@ -252,6 +301,9 @@ export default function AttendanceScannerPage() {
 
     let attendanceRef = slot1Ref;
     let visitSlot = 1;
+    // What the sub looks like after this visit, for the expiry warning.
+    let subTotalSessions = null;
+    let subRemainingAfter = null;
 
     try {
       await runTransaction(db, async (tx) => {
@@ -270,6 +322,8 @@ export default function AttendanceScannerPage() {
               remainingSessions: (sub.remainingSessions || 1) - 1,
             });
             sessionDeducted = true;
+            subTotalSessions = sub.totalSessions;
+            subRemainingAfter = (sub.remainingSessions || 1) - 1;
           }
         }
 
@@ -312,6 +366,17 @@ export default function AttendanceScannerPage() {
     setResultType('success');
     playSound('success');
     setTodayCount(prev => prev + 1);
+
+    const warning = computeExpiryWarning({
+      totalSessions: subTotalSessions,
+      remainingSessions: subRemainingAfter,
+      endDateMs: activeSub?.endDate?.toDate ? activeSub.endDate.toDate().getTime() : null,
+      settings: warningSettingsRef.current,
+    });
+    if (warning) {
+      setExpiryWarning(warning);
+      sendExpiryNotification(member.id, activeSub?.id, warning);
+    }
 
     // The history query was issued before this check-in existed — fold today's
     // visit in rather than paying for a second read.
@@ -514,6 +579,25 @@ export default function AttendanceScannerPage() {
             </div>
           )}
 
+          {/* Subscription ending soon — stays with the member card */}
+          {expiryWarning && memberData && (
+            <div className="card" style={{
+              marginBottom: 'var(--space-4)',
+              border: '2px solid var(--pt-warning)',
+              background: 'rgba(255,145,0,0.12)',
+              textAlign: 'center',
+              animation: 'slideUp 0.3s ease-out',
+            }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: 'var(--space-2)' }}>⏳</div>
+              <h3 style={{ color: 'var(--pt-warning)', marginBottom: 'var(--space-1)' }}>
+                {expiryWarningText(expiryWarning).desk[isAr ? 'ar' : 'en']}
+              </h3>
+              <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-xs)' }}>
+                {isAr ? '🔔 اتبعتله إشعار في التطبيق' : '🔔 A notification was sent to their app'}
+              </p>
+            </div>
+          )}
+
           {/* Full record for the member just scanned */}
           {memberData && (
             <ScannedMemberPanel
@@ -523,7 +607,7 @@ export default function AttendanceScannerPage() {
               subscription={memberSub}
               locale={locale}
               canSeeCredentials={tenantRole === 'owner' || isSuperAdmin}
-              onClose={() => { setMemberData(null); setMemberHistory([]); setMemberSub(null); }}
+              onClose={() => { setMemberData(null); setMemberHistory([]); setMemberSub(null); setExpiryWarning(null); }}
             />
           )}
 

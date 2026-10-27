@@ -33,6 +33,9 @@ export default function SettingsPage() {
     enableSms: false,
     renewalReminderDays: 3,
     birthdayMessage: true,
+    expiryWarningEnabled: true,
+    expiryWarningSessions: 2,
+    expiryWarningDays: 2,
     currency: 'EGP',
     taxRate: 0,
     invoicePrefix: 'INV',
@@ -219,6 +222,51 @@ export default function SettingsPage() {
           <div className="form-group" style={{ marginTop: 'var(--space-4)' }}>
             <label className="form-label">{isAr ? 'تذكير التجديد قبل (أيام)' : 'Renewal Reminder (days before)'}</label>
             <input className="form-input" type="number" dir="ltr" value={settings.renewalReminderDays} onChange={e => handleChange('renewalReminderDays', Number(e.target.value))} min={1} max={30} />
+          </div>
+
+          {/* Warn at check-in when a subscription is about to run out */}
+          <div style={{ marginTop: 'var(--space-6)', paddingTop: 'var(--space-4)', borderTop: '1px solid var(--glass-border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)' }}>
+              <div>
+                <div style={{ fontWeight: 700 }}>⏳ {isAr ? 'تنبيه قرب انتهاء الاشتراك عند الحضور' : 'Ending-soon alert at check-in'}</div>
+                <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>
+                  {isAr
+                    ? 'لما العضو يسجل حضور واشتراكه قرب يخلص، يظهر تنبيه للاستقبال ويوصله إشعار في التطبيق — وبيتكرر لحد آخر حصة / آخر يوم.'
+                    : 'When a member checks in near the end of their subscription, the desk sees an alert and the member gets an app notification — repeated down to the last class / day.'}
+                </small>
+              </div>
+              <button onClick={() => handleChange('expiryWarningEnabled', settings.expiryWarningEnabled === false)} style={{
+                width: 52, height: 28, borderRadius: 'var(--radius-full)', border: 'none', cursor: 'pointer', flexShrink: 0,
+                background: settings.expiryWarningEnabled !== false ? 'var(--pt-gold)' : 'var(--pt-gray-700)',
+                position: 'relative', transition: 'background 0.3s',
+              }}>
+                <div style={{
+                  width: 22, height: 22, borderRadius: 'var(--radius-full)',
+                  background: 'white', position: 'absolute', top: 3,
+                  transition: 'transform 0.3s',
+                  transform: settings.expiryWarningEnabled !== false ? (isAr ? 'translateX(-26px)' : 'translateX(26px)') : 'translateX(3px)',
+                  insetInlineStart: 0,
+                }} />
+              </button>
+            </div>
+            {settings.expiryWarningEnabled !== false && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'باقات الحصص (12 كلاس…): نبّه لما يفضل' : 'Class plans (12 classes…): warn at'}</label>
+                  <input className="form-input" type="number" dir="ltr" min={1} max={30}
+                    value={settings.expiryWarningSessions ?? 2}
+                    onChange={e => handleChange('expiryWarningSessions', Number(e.target.value))} />
+                  <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>{isAr ? 'حصص أو أقل' : 'classes left or fewer'}</small>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{isAr ? 'باقات المدة (شهر…): نبّه لما يفضل' : 'Time plans (a month…): warn at'}</label>
+                  <input className="form-input" type="number" dir="ltr" min={1} max={30}
+                    value={settings.expiryWarningDays ?? 2}
+                    onChange={e => handleChange('expiryWarningDays', Number(e.target.value))} />
+                  <small style={{ color: 'var(--pt-gray-500)', fontSize: 'var(--font-size-xs)' }}>{isAr ? 'أيام أو أقل' : 'days left or fewer'}</small>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

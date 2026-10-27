@@ -306,15 +306,27 @@ service cloud.firestore {
           (isTenantAdmin(tenantId) && isTenantActive(tenantId));
       }
 
+      // Follow-up desk call log (/admin/follow-up). Notes about members'
+      // renewals are staff-only — the catch-all below would let any member of
+      // the gym read them, so it excludes this collection too. Staff add and
+      // correct entries; only the owner can delete one.
+      match /follow_ups/{docId} {
+        allow read, create, update: if isSuperAdmin() ||
+          (isTenantAdmin(tenantId) && isTenantActive(tenantId));
+        allow delete: if isSuperAdmin() ||
+          (isTenantOwner(tenantId) && isTenantActive(tenantId));
+      }
+
       // Generic catch-all for other tenant sub-collections
       // (classes, offers, ratings, schedules, trainers, employees, etc.)
       //
       // NOTE: this wildcard also matches paths that have their own rule above,
-      // and Firestore ORs every matching allow — so `members` must be excluded
-      // here or its tighter read rule is silently undone by this one.
+      // and Firestore ORs every matching allow — so `members` and `follow_ups`
+      // must be excluded here or their tighter read rules are silently undone
+      // by this one.
       match /{subcollection}/{docId} {
         allow read: if isSuperAdmin() ||
-          (subcollection != 'members' && belongsToTenant(tenantId) && isTenantActive(tenantId));
+          (!(subcollection in ['members', 'follow_ups']) && belongsToTenant(tenantId) && isTenantActive(tenantId));
         allow create, update: if isSuperAdmin() || 
           (isTenantAdmin(tenantId) && isTenantActive(tenantId));
         allow delete: if isSuperAdmin() || 

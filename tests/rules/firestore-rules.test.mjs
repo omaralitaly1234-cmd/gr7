@@ -212,6 +212,23 @@ test('member can create a renewal-request but not update one', async () => {
   await assertSucceeds(updateDoc(doc(ctx('adminA'), `tenants/${TENANT_A}/renewal-requests/r1`), { status: 'approved' }));
 });
 
+// ---------- follow_ups: staff-only call log ----------
+test('follow_ups: admin logs and reads calls; members and trainers cannot read them', async () => {
+  const path = `tenants/${TENANT_A}/follow_ups`;
+  await assertSucceeds(setDoc(doc(ctx('adminA'), `${path}/f1`), { memberId: 'm1', outcome: 'no_answer', note: 'x' }));
+  await assertSucceeds(getDoc(doc(ctx('adminA'), `${path}/f1`)));
+  await assertSucceeds(getDocs(query(collection(ctx('ownerA'), path), where('memberId', 'in', ['m1']))));
+  // the catch-all must not re-open the log to everyone in the gym
+  await assertFails(getDoc(doc(ctx('memberA'), `${path}/f1`)));
+  await assertFails(getDocs(collection(ctx('memberA'), path)));
+  await assertFails(getDoc(doc(ctx('trainerA'), `${path}/f1`)));
+  await assertFails(setDoc(doc(ctx('memberA'), `${path}/f2`), { memberId: 'm1', outcome: 'will_renew' }));
+  await assertFails(getDoc(doc(ctx('memberB'), `${path}/f1`)));
+  // only the owner deletes
+  await assertFails(deleteDoc(doc(ctx('adminA'), `${path}/f1`)));
+  await assertSucceeds(deleteDoc(doc(ctx('ownerA'), `${path}/f1`)));
+});
+
 // ---------- auditLogs immutable ----------
 test('auditLogs: any authed user can create; nobody can update/delete', async () => {
   await assertSucceeds(addDoc(collection(ctx('memberA'), 'auditLogs'), { action: 'x', createdAt: Date.now() }));

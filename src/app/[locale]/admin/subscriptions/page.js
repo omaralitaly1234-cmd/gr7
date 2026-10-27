@@ -12,6 +12,7 @@ import {
   expiredExportFileName, activeExportFileName,
 } from '@/lib/expired-export';
 import { downloadXlsx } from '@/lib/xlsx-download';
+import { isStillLapsed } from '@/lib/follow-up';
 import { useTenant } from '@/context/TenantContext';
 import RenewSubscriptionModal from '@/components/RenewSubscriptionModal';
 import { Timestamp } from 'firebase/firestore';
@@ -157,10 +158,23 @@ export default function SubscriptionsPage() {
       const memberMap = await getTenantDocumentsByIds(
         tenantId, 'members', rowsData.map(s => s.memberId));
 
+      // Some renewals leave the old sub on 'expired' instead of 'renewed', so
+      // the expired file would list members who already paid again. The member
+      // doc is the tiebreaker — same check the follow-up desk uses.
+      const nowMs = Date.now();
+      const fileRows = isActive
+        ? rowsData
+        : rowsData.filter(s => isStillLapsed(s, memberMap.get(s.memberId), nowMs));
+      if (fileRows.length === 0) {
+        toast.error(isAr ? 'كل اللي اشتراكهم خلص جددوا' : 'Every expired member has renewed', { id: toastId });
+        setExporting(null);
+        return;
+      }
+
       const buildRows = isActive ? buildActiveRows : buildExpiredRows;
       const fileName = isActive ? activeExportFileName : expiredExportFileName;
       await downloadXlsx(
-        buildRows(rowsData, memberMap, { locale }),
+        buildRows(fileRows, memberMap, { locale }),
         fileName(new Date(), locale),
         {
           sheetName: isActive
@@ -181,7 +195,7 @@ export default function SubscriptionsPage() {
             : (isAr
               ? `تم تنزيل أول ${EXPORT_LIMIT} اشتراك (الأحدث انتهاءً)`
               : `Downloaded the ${EXPORT_LIMIT} most recently expired`))
-          : (isAr ? `تم تنزيل ${rowsData.length} اشتراك ✅` : `Downloaded ${rowsData.length} subscriptions ✅`),
+          : (isAr ? `تم تنزيل ${fileRows.length} اشتراك ✅` : `Downloaded ${fileRows.length} subscriptions ✅`),
         { id: toastId },
       );
     } catch (err) {

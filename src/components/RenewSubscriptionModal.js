@@ -21,7 +21,7 @@ import { nextInvoiceNumber } from '@/lib/firebase/invoices';
 import { logAuditClient } from '@/lib/firebase/audit';
 import { useMembershipPlans } from '@/lib/hooks/useMembershipPlans';
 import { buildInstallmentSchedule, splitPayment } from '@/lib/installments';
-import { computeRenewal } from '@/lib/subscription-math';
+import { computeRenewal, computeCarriedSessions } from '@/lib/subscription-math';
 import { parseDateInput } from '@/lib/format';
 import { Timestamp, increment } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -81,6 +81,21 @@ export default function RenewSubscriptionModal({
     return r.ok ? r : null;
   }, [plan, currentSub, startOverride]);
 
+  // Classes still left on the current term ride along, the same way its
+  // remaining days do.
+  const carriedSessions = useMemo(() => {
+    if (!plan) return 0;
+    const end = currentSub?.endDate?.toDate
+      ? currentSub.endDate.toDate()
+      : (currentSub?.endDate ? new Date(currentSub.endDate) : null);
+    return computeCarriedSessions({
+      currentTotalSessions: currentSub?.totalSessions,
+      currentRemainingSessions: currentSub?.remainingSessions,
+      currentEndDateMs: end ? end.getTime() : null,
+      newPlanSessions: plan.sessions,
+    });
+  }, [plan, currentSub]);
+
   const fmt = (ms) => new Date(ms).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
   });
@@ -124,9 +139,9 @@ export default function RenewSubscriptionModal({
         endDate: Timestamp.fromDate(endDate),
         originalEndDate: Timestamp.fromDate(endDate),
         status: 'active',
-        totalSessions: plan.sessions,
+        totalSessions: plan.sessions === null || plan.sessions === undefined ? plan.sessions : plan.sessions + carriedSessions,
         usedSessions: 0,
-        remainingSessions: plan.sessions,
+        remainingSessions: plan.sessions === null || plan.sessions === undefined ? plan.sessions : plan.sessions + carriedSessions,
         freezeDaysUsed: 0,
         maxFreezeDays: 14,
         currentFreezeStart: null,
@@ -146,6 +161,7 @@ export default function RenewSubscriptionModal({
         isRenewal: true,
         renewedFromSubId: currentSub?.id || null,
         carriedOverDays: dates.carriedOverDays,
+        carriedOverSessions: carriedSessions,
         // Provenance for a hand-picked start: finance can tell a normal renewal
         // from one the desk moved, and by how much.
         startDateOverridden: dates.startOverridden,
@@ -295,6 +311,13 @@ export default function RenewSubscriptionModal({
                   ✅ {isAr
                     ? `تم ترحيل ${dates.carriedOverDays} يوم متبقية من الاشتراك الحالي`
                     : `${dates.carriedOverDays} remaining days carried over from the current term`}
+                </div>
+              )}
+              {carriedSessions > 0 && (
+                <div style={{ marginTop: 'var(--space-2)', color: 'var(--pt-success)' }}>
+                  ✅ {isAr
+                    ? `تم ترحيل ${carriedSessions} حصة متبقية — الاشتراك الجديد هيبقى ${plan.sessions + carriedSessions} حصة`
+                    : `${carriedSessions} classes left carried over — the new term has ${plan.sessions + carriedSessions} classes`}
                 </div>
               )}
               {/* Starting before the current term ends overlaps it — say so

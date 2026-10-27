@@ -7,6 +7,7 @@ import { getTenantDocuments, getTenantDocument, getTenantCollectionCount, update
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import ScannedMemberPanel from '@/components/ScannedMemberPanel';
+import RenewSubscriptionModal from '@/components/RenewSubscriptionModal';
 import { findMemberByCode } from '@/lib/firebase/member-codes';
 import { searchMembers } from '@/lib/firebase/member-search';
 import { Timestamp, doc, getDoc, setDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
@@ -43,6 +44,11 @@ export default function AttendanceScannerPage() {
   // the member card, unlike the 4-second success banner.
   const [expiryWarning, setExpiryWarning] = useState(null);
   const warningSettingsRef = useRef(DEFAULT_EXPIRY_WARNING);
+  // Renewal offered right at the desk: { sub, checkInAfter }. `checkInAfter`
+  // is set when the scan was turned away (expired, or out of classes) — once
+  // they have renewed, the check-in they came for goes through.
+  const [renewTarget, setRenewTarget] = useState(null);
+  const [showRenewModal, setShowRenewModal] = useState(false);
   const scannerRef = useRef(null);
   const html5QrCode = useRef(null);
 
@@ -129,6 +135,7 @@ export default function AttendanceScannerPage() {
         setMemberHistory([]);
         setMemberSub(null);
         setExpiryWarning(null);
+        setRenewTarget(null);
         return;
       }
       return processCheckIn(member);
@@ -214,6 +221,7 @@ export default function AttendanceScannerPage() {
   const processCheckIn = async (member) => {
     setMemberData(member);
     setExpiryWarning(null);
+    setRenewTarget(null);
     loadMemberContext(member.id);
 
     // The member doc's `status` field is denormalised — it can drift out of
@@ -278,6 +286,9 @@ export default function AttendanceScannerPage() {
       return;
     }
     if (effectiveStatus !== 'active') {
+      // Renew from the newest term that was not cancelled; the old term is the
+      // one the renewal closes and dates itself from.
+      setRenewTarget({ sub: (recentSubs || []).find(s => s.status !== 'cancelled') || null, checkInAfter: true });
       setScanResult(t('attendance.subscriptionExpired'));
       setResultType('expired');
       playSound('expired');
@@ -352,6 +363,7 @@ export default function AttendanceScannerPage() {
         return;
       }
       if (err.message === 'no_sessions') {
+        setRenewTarget({ sub: activeSub, checkInAfter: true });
         setScanResult(t('attendance.noSessionsLeft'));
         setResultType('error');
         return;
@@ -375,6 +387,7 @@ export default function AttendanceScannerPage() {
     });
     if (warning) {
       setExpiryWarning(warning);
+      setRenewTarget({ sub: activeSub, checkInAfter: false });
       sendExpiryNotification(member.id, activeSub?.id, warning);
     }
 
@@ -396,6 +409,29 @@ export default function AttendanceScannerPage() {
       setScanResult(null);
       setResultType(null);
     }, 4000);
+  };
+
+  // After a desk renewal: a turned-away member is checked in straight away;
+  // otherwise just refresh the card so it shows the new term.
+  const handleRenewed = ({ endDate, plan }) => {
+    const target = renewTarget;
+    setShowRenewModal(false);
+    setExpiryWarning(null);
+    setRenewTarget(null);
+    if (!memberData) return;
+    const renewed = {
+      ...memberData,
+      status: 'active',
+      endDate: Timestamp.fromDate(endDate),
+      planName: plan?.name?.[locale] || plan?.name?.ar || memberData.planName,
+      currentPlan: { ...(memberData.currentPlan || {}), type: plan?.type, planId: plan?.planId || plan?.id },
+    };
+    if (target?.checkInAfter) {
+      processCheckIn(renewed);
+    } else {
+      setMemberData(renewed);
+      loadMemberContext(renewed.id);
+    }
   };
 
   // Initialize camera scanner
@@ -575,6 +611,12 @@ export default function AttendanceScannerPage() {
                     {memberData.fullName?.[locale] || memberData.fullName?.ar} • 🎫 {memberData.membershipNumber}
                   </p>
                 )}
+                {memberData && renewTarget?.checkInAfter && (resultType === 'expired' || resultType === 'error') && (
+                  <button className="btn btn-primary" style={{ marginTop: 'var(--space-4)' }}
+                    onClick={() => setShowRenewModal(true)}>
+                    🔄 {isAr ? 'جدد الاشتراك وسجّل الحضور' : 'Renew and check in'}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -595,7 +637,24 @@ export default function AttendanceScannerPage() {
               <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-xs)' }}>
                 {isAr ? '🔔 اتبعتله إشعار في التطبيق' : '🔔 A notification was sent to their app'}
               </p>
+              {renewTarget && !renewTarget.checkInAfter && (
+                <button className="btn btn-primary" style={{ marginTop: 'var(--space-3)' }}
+                  onClick={() => setShowRenewModal(true)}>
+                  🔄 {isAr ? 'جدد دلوقتي' : 'Renew now'}
+                </button>
+              )}
             </div>
+          )}
+
+          {showRenewModal && memberData && (
+            <RenewSubscriptionModal
+              tenantId={tenantId}
+              locale={locale}
+              member={memberData}
+              currentSub={renewTarget?.sub || null}
+              onClose={() => setShowRenewModal(false)}
+              onRenewed={handleRenewed}
+            />
           )}
 
           {/* Full record for the member just scanned */}
@@ -607,7 +666,7 @@ export default function AttendanceScannerPage() {
               subscription={memberSub}
               locale={locale}
               canSeeCredentials={tenantRole === 'owner' || isSuperAdmin}
-              onClose={() => { setMemberData(null); setMemberHistory([]); setMemberSub(null); setExpiryWarning(null); }}
+              onClose={() => { setMemberData(null); setMemberHistory([]); setMemberSub(null); setExpiryWarning(null); setRenewTarget(null); }}
             />
           )}
 

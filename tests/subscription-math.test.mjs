@@ -164,3 +164,16 @@ test('an unparseable start override falls back to automatic', () => {
   assert.equal(r.startOverridden, false);
   assert.equal(r.startMs, now);
 });
+
+// ---- class carry-over on renewal ----
+import { computeCarriedSessions } from '../src/lib/subscription-math.js';
+
+test('carry: classes left on a running class plan move to the renewal', () => {
+  const nowMs = Date.UTC(2026, 9, 27);
+  const running = { currentTotalSessions: 12, currentRemainingSessions: 2, currentEndDateMs: nowMs + 5 * DAY, newPlanSessions: 12, nowMs };
+  assert.equal(computeCarriedSessions(running), 2);
+  assert.equal(computeCarriedSessions({ ...running, currentRemainingSessions: 0 }), 0);
+  assert.equal(computeCarriedSessions({ ...running, currentEndDateMs: nowMs - DAY }), 0, 'expired term forfeits');
+  assert.equal(computeCarriedSessions({ ...running, newPlanSessions: null }), 0, 'onto an unlimited plan');
+  assert.equal(computeCarriedSessions({ ...running, currentTotalSessions: null }), 0, 'from a time plan');
+});

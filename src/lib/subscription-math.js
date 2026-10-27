@@ -93,3 +93,30 @@ export function computeRenewal({
     gapDays: Math.max(0, Math.ceil((startMs - autoStart) / DAY_MS)),
   };
 }
+
+/**
+ * Classes left on the current term that move into the renewal.
+ *
+ * Mirrors the day carry-over in computeRenewal: renewing early must not throw
+ * away what the member already paid for. Only while the current term is still
+ * running, and only class plan → class plan; a renewal onto an unlimited plan
+ * has nothing to add them to.
+ *
+ * @param {{ currentTotalSessions?: number|null, currentRemainingSessions?: number|null,
+ *           currentEndDateMs?: number|null, newPlanSessions?: number|null, nowMs?: number }} input
+ * @returns {number}
+ */
+export function computeCarriedSessions({
+  currentTotalSessions = null,
+  currentRemainingSessions = null,
+  currentEndDateMs = null,
+  newPlanSessions = null,
+  nowMs = Date.now(),
+}) {
+  if (currentTotalSessions === null || currentTotalSessions === undefined) return 0;
+  if (newPlanSessions === null || newPlanSessions === undefined) return 0;
+  const end = Number(currentEndDateMs);
+  if (!Number.isFinite(end) || end <= Number(nowMs)) return 0;
+  const left = Math.floor(Number(currentRemainingSessions));
+  return Number.isFinite(left) && left > 0 ? left : 0;
+}

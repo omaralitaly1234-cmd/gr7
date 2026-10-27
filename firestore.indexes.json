@@ -195,6 +195,34 @@
         { "fieldPath": "createdAt", "order": "ASCENDING" },
         { "fieldPath": "netAmount", "order": "ASCENDING" }
       ]
+    },
+    {
+      "comment": "Follow-up desk, absent tab: active members whose lastVisit is older than N days, most recently gone first.",
+      "collectionGroup": "members",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "lastVisit", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "comment": "Follow-up desk, absent tab 'never checked in': status == active, lastVisit == null, createdAt <= cutoff, newest first.",
+      "collectionGroup": "members",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "lastVisit", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "comment": "Follow-up desk: latest follow-ups for the members on one page (memberId in [...] and createdAt >= lookback).",
+      "collectionGroup": "follow_ups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "memberId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

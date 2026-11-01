@@ -8,14 +8,36 @@ import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
 import ScannedMemberPanel from '@/components/ScannedMemberPanel';
 import RenewSubscriptionModal from '@/components/RenewSubscriptionModal';
-import { findMemberByCode } from '@/lib/firebase/member-codes';
 import { searchMembers } from '@/lib/firebase/member-search';
-import { Timestamp, doc, getDoc, setDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { Timestamp, doc, getDoc, getDocFromServer, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import {
   DEFAULT_EXPIRY_WARNING, toExpiryWarningSettings, computeExpiryWarning,
   expiryWarningText, expiryNotificationId,
 } from '@/lib/expiry-warning';
+import {
+  SERVER_TIMEOUT_MS, findMemberByCodeFromServer, recentSubsFromServer, writeCheckIn, buildRoster, replayQueue,
+} from '@/lib/firebase/checkin';
+import {
+  ROSTER_MAX_AGE_MS, pickActiveSub, toRosterEntry, rosterEntryToMember, findInRoster, searchRoster,
+  offlineVerdict, rosterAfterVisit, makeQueueEntry, visitsTodayFor, visitsAfter,
+  loadRoster, saveRoster, loadQueue, saveQueue, loadIssues, saveIssues, loadVisits, saveVisits,
+  isNetworkError, withTimeout,
+} from '@/lib/offline-checkin';
+
+// localStorage, or null where the browser refuses it (private window, policy).
+function deviceStorage() {
+  try { return window.localStorage; } catch { return null; }
+}
+
+const ISSUE_TEXT = {
+  expired: { ar: 'اشتراكه كان منتهي وقت ما دخل', en: 'Subscription had expired' },
+  frozen: { ar: 'اشتراكه كان متجمد وقت ما دخل', en: 'Subscription was frozen' },
+  no_sessions: { ar: 'مكانش فاضله حصص — اتسجل من غير خصم', en: 'No classes left — recorded without one' },
+  not_found: { ar: 'الكود ده مش لأي عضو', en: 'Code belongs to no member' },
+  third_visit: { ar: 'زيارة تالتة في نفس اليوم — ما اتسجلتش', en: 'Third visit that day — not recorded' },
+  error: { ar: 'حصل خطأ وهو بيترفع', en: 'Upload failed' },
+};
 
 export default function AttendanceScannerPage() {
   const t = useTranslations();
@@ -49,8 +71,37 @@ export default function AttendanceScannerPage() {
   // they have renewed, the check-in they came for goes through.
   const [renewTarget, setRenewTarget] = useState(null);
   const [showRenewModal, setShowRenewModal] = useState(false);
+  // Whether the member's app was actually notified about the warning (it is
+  // not while offline).
+  const [expiryNotified, setExpiryNotified] = useState(false);
   const scannerRef = useRef(null);
   const html5QrCode = useRef(null);
+
+  // Offline mode. `online` flips off when a server read fails or times out,
+  // and back on when the queue replays (or a probe read) succeeds. The ref is
+  // what the scan handlers read — they are captured by the camera callback.
+  const [online, setOnline] = useState(true);
+  const onlineRef = useRef(true);
+  const [queueCount, setQueueCount] = useState(0);
+  const [issues, setIssues] = useState([]);
+  const [rosterInfo, setRosterInfo] = useState({ count: 0, builtAt: 0 });
+  const [syncing, setSyncing] = useState(false);
+  // A code the offline roster does not know: { code, memberId, memberName }.
+  const [unknownOffline, setUnknownOffline] = useState(null);
+  const rosterRef = useRef({ builtAt: 0, members: {} });
+  const syncingRef = useRef(false);
+  const rosterBuildingRef = useRef(false);
+
+  const markOnline = useCallback((value) => {
+    onlineRef.current = value;
+    setOnline(value);
+  }, []);
+
+  const setRoster = useCallback((roster) => {
+    rosterRef.current = roster;
+    saveRoster(deviceStorage(), tenantId, roster);
+    setRosterInfo({ count: Object.keys(roster.members || {}).length, builtAt: roster.builtAt || 0 });
+  }, [tenantId]);
 
   // Recorded Arabic voice clips for the front desk — one for a successful
   // check-in, one for an expired subscription. Routed through a Web Audio
@@ -105,29 +156,232 @@ export default function AttendanceScannerPage() {
   // aggregation and the list is capped at five: this used to download every
   // check-in of the day just to call .length and slice(0, 5) off it, on a page
   // the front desk leaves open from open to close.
-  useEffect(() => {
-    async function loadTodayCount() {
-      if (!tenantId) return;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const filter = [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(today) }];
-      const [countRes, recentRes] = await Promise.all([
-        getTenantCollectionCount(tenantId, 'attendance', filter),
-        getTenantDocuments(tenantId, 'attendance', filter, { field: 'checkIn', direction: 'desc' }, 5),
-      ]);
-      setTodayCount(countRes.count || 0);
-      setRecentScans(recentRes.data || []);
-    }
-    loadTodayCount();
+  const loadTodayCount = useCallback(async () => {
+    if (!tenantId) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const filter = [{ field: 'checkIn', operator: '>=', value: Timestamp.fromDate(today) }];
+    const [countRes, recentRes] = await Promise.all([
+      getTenantCollectionCount(tenantId, 'attendance', filter),
+      getTenantDocuments(tenantId, 'attendance', filter, { field: 'checkIn', direction: 'desc' }, 5),
+    ]);
+    if (countRes.error || recentRes.error) return;
+    setTodayCount(countRes.count || 0);
+    setRecentScans(recentRes.data || []);
   }, [tenantId]);
+  useEffect(() => { loadTodayCount(); }, [loadTodayCount]);
+
+  // ---- offline roster, queue and replay ----------------------------------
+
+  const refreshRoster = useCallback(async () => {
+    if (!tenantId || rosterBuildingRef.current) return;
+    rosterBuildingRef.current = true;
+    try {
+      setRoster(await buildRoster(tenantId));
+    } catch (err) {
+      console.warn('[Scanner] offline roster:', err);
+    }
+    rosterBuildingRef.current = false;
+  }, [tenantId, setRoster]);
+
+  // Replay the offline queue. Also the "are we back?" probe: with nothing
+  // queued it reads one small doc from the server.
+  const syncQueue = useCallback(async () => {
+    if (!tenantId || syncingRef.current) return;
+    syncingRef.current = true;
+    setSyncing(true);
+    try {
+      const queue = loadQueue(deviceStorage(), tenantId);
+      if (queue.length === 0) {
+        if (!onlineRef.current) {
+          await withTimeout(getDocFromServer(doc(db, `tenants/${tenantId}/config/settings`)), SERVER_TIMEOUT_MS);
+          markOnline(true);
+        }
+      } else {
+        const res = await replayQueue(tenantId, queue, { locale });
+        // Re-read: scans made while the replay ran were appended meanwhile.
+        const done = new Set(res.done);
+        const left = loadQueue(deviceStorage(), tenantId).filter(e => !done.has(e.id));
+        saveQueue(deviceStorage(), tenantId, left);
+        setQueueCount(left.length);
+        if (res.issues.length) {
+          const all = [...loadIssues(deviceStorage(), tenantId), ...res.issues];
+          saveIssues(deviceStorage(), tenantId, all);
+          setIssues(all);
+        }
+        markOnline(!res.offline);
+        if (res.done.length) loadTodayCount();
+      }
+    } catch (err) {
+      if (!isNetworkError(err)) console.warn('[Scanner] sync:', err);
+      markOnline(false);
+    }
+    syncingRef.current = false;
+    setSyncing(false);
+  }, [tenantId, locale, markOnline, loadTodayCount]);
+
+  // Load what this device kept from last time, and rebuild a stale roster.
+  useEffect(() => {
+    if (!tenantId) return;
+    const s = deviceStorage();
+    const roster = loadRoster(s, tenantId);
+    rosterRef.current = roster;
+    setRosterInfo({ count: Object.keys(roster.members || {}).length, builtAt: roster.builtAt || 0 });
+    setQueueCount(loadQueue(s, tenantId).length);
+    setIssues(loadIssues(s, tenantId));
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) markOnline(false);
+    // Upload anything left from before, then refresh the roster if it is old.
+    syncQueue().then(() => {
+      if (onlineRef.current && Date.now() - (rosterRef.current.builtAt || 0) > ROSTER_MAX_AGE_MS) refreshRoster();
+    });
+  }, [tenantId, markOnline, syncQueue, refreshRoster]);
+
+  // The browser's own connectivity events, plus a 30-second retry while there
+  // is something queued or the desk is offline.
+  useEffect(() => {
+    const goOffline = () => markOnline(false);
+    const goOnline = () => syncQueue();
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    const timer = setInterval(() => {
+      if (!onlineRef.current || loadQueue(deviceStorage(), tenantId).length > 0) syncQueue();
+      else if (Date.now() - (rosterRef.current.builtAt || 0) > ROSTER_MAX_AGE_MS) refreshRoster();
+    }, 30000);
+    return () => {
+      window.removeEventListener('offline', goOffline);
+      window.removeEventListener('online', goOnline);
+      clearInterval(timer);
+    };
+  }, [tenantId, markOnline, syncQueue, refreshRoster]);
+
+  const dismissIssue = (id) => {
+    const next = id ? issues.filter(i => i.id !== id) : [];
+    saveIssues(deviceStorage(), tenantId, next);
+    setIssues(next);
+  };
+
+  const enqueue = (entry) => {
+    const s = deviceStorage();
+    const queue = [...loadQueue(s, tenantId), entry];
+    saveQueue(s, tenantId, queue);
+    setQueueCount(queue.length);
+  };
+
+  const countOfflineVisit = (memberId, memberName, gender, atMs) => {
+    if (memberId) saveVisits(deviceStorage(), tenantId, visitsAfter(loadVisits(deviceStorage(), tenantId), memberId, atMs));
+    setTodayCount(prev => prev + 1);
+    setRecentScans(prev => [{ id: `local_${atMs}`, memberName, gender, checkIn: Timestamp.fromMillis(atMs), offline: true }, ...prev].slice(0, 5));
+  };
+
+  // Decide from the roster alone and queue the visit. `queued` is passed when
+  // a live check-in timed out mid-write: its id is the one the transaction
+  // used, so the replay can tell whether it actually committed.
+  const offlineCheckIn = (entry, queued = null) => {
+    const member = rosterEntryToMember(entry);
+    const name = member.fullName?.[locale] || member.fullName?.ar || '';
+    setUnknownOffline(null);
+    setRenewTarget(null);
+    setExpiryWarning(null);
+    setMemberData(member);
+    setMemberHistory([]);
+    setHistoryLoading(false);
+    setMemberSub(entry.sub ? { endDate: entry.sub.endMs, totalSessions: entry.sub.totalSessions, remainingSessions: entry.sub.remainingSessions } : null);
+
+    const nowMs = Date.now();
+    const verdict = offlineVerdict(entry, nowMs, visitsTodayFor(loadVisits(deviceStorage(), tenantId), entry.id, nowMs));
+    if (!verdict.ok) {
+      if (verdict.reason === 'expired') {
+        setScanResult(t('attendance.subscriptionExpired'));
+        setResultType('expired');
+        playSound('expired');
+      } else if (verdict.reason === 'frozen') {
+        setScanResult(t('attendance.subscriptionFrozen'));
+        setResultType('frozen');
+      } else if (verdict.reason === 'no_sessions') {
+        setScanResult(t('attendance.noSessionsLeft'));
+        setResultType('error');
+      } else {
+        setScanResult(t('attendance.alreadyCheckedInTwice'));
+        setResultType('warning');
+      }
+      return;
+    }
+
+    enqueue(queued || makeQueueEntry({ code: entry.membershipNumber, memberId: entry.id, memberName: name, atMs: nowMs }));
+    const roster = rosterAfterVisit(rosterRef.current, entry.id);
+    setRoster(roster);
+    countOfflineVisit(entry.id, name, entry.gender, nowMs);
+
+    const after = roster.members[entry.id];
+    setMemberData(rosterEntryToMember(after));
+    if (after.sub) setMemberSub({ endDate: after.sub.endMs, totalSessions: after.sub.totalSessions, remainingSessions: after.sub.remainingSessions });
+    setScanResult(isAr ? 'تم تسجيل الحضور — من غير نت، هيترفع أول ما النت يرجع' : 'Checked in offline — uploads when the connection is back');
+    setResultType('success');
+    playSound('success');
+
+    const counted = entry.planType !== 'diamond' && after.sub?.totalSessions !== null && after.sub?.totalSessions !== undefined;
+    const warning = computeExpiryWarning({
+      totalSessions: counted ? after.sub.totalSessions : null,
+      remainingSessions: counted ? after.sub.remainingSessions : null,
+      endDateMs: after.sub?.endMs || null,
+      settings: warningSettingsRef.current,
+    });
+    setExpiryNotified(false);
+    if (warning) setExpiryWarning(warning);
+
+    setTimeout(() => {
+      setScanResult(null);
+      setResultType(null);
+    }, 4000);
+  };
+
+  // A code the roster does not know (no live subscription when it was built,
+  // or a member never seen). The desk decides; the replay checks it later.
+  const showUnknownOffline = (code, member = null) => {
+    setMemberData(member);
+    setMemberHistory([]);
+    setMemberSub(null);
+    setExpiryWarning(null);
+    setRenewTarget(null);
+    setUnknownOffline({ code, memberId: member?.id || null, memberName: member?.fullName?.[locale] || member?.fullName?.ar || '' });
+    setScanResult(isAr
+      ? 'مفيش نت، والكود ده مش في النسخة المحفوظة — غالباً اشتراكه منتهي'
+      : 'Offline, and this code is not in the saved copy — most likely expired');
+    setResultType('warning');
+  };
+
+  const admitUnknownOffline = () => {
+    if (!unknownOffline) return;
+    const nowMs = Date.now();
+    enqueue(makeQueueEntry({ ...unknownOffline, verified: false, atMs: nowMs }));
+    countOfflineVisit(unknownOffline.memberId, unknownOffline.memberName || unknownOffline.code, memberData?.gender, nowMs);
+    setUnknownOffline(null);
+    setScanResult(isAr ? 'اتسجل مؤقتاً — هيتراجع أول ما النت يرجع' : 'Recorded for now — checked when the connection is back');
+    setResultType('success');
+    setTimeout(() => { setScanResult(null); setResultType(null); }, 4000);
+  };
+
+  const offlineScan = (code) => {
+    const entry = findInRoster(rosterRef.current, code);
+    if (entry) offlineCheckIn(entry);
+    else showUnknownOffline(String(code).trim());
+  };
 
   const handleScan = useCallback(async (qrData) => {
     if (!tenantId || !qrData) return;
+    if (!onlineRef.current) return offlineScan(qrData);
 
     try {
       // Matches membershipNumber and qrCode, raw and normalised, so a code
       // typed in a different case still opens the door.
-      const member = await findMemberByCode(tenantId, qrData);
+      let member;
+      try {
+        member = await withTimeout(findMemberByCodeFromServer(tenantId, qrData), SERVER_TIMEOUT_MS);
+      } catch (err) {
+        if (!isNetworkError(err)) throw err;
+        markOnline(false);
+        return offlineScan(qrData);
+      }
       if (!member) {
         setScanResult(isAr ? 'لا يوجد عضو بهذا الرمز' : 'No member found with this code');
         setResultType('error');
@@ -136,6 +390,7 @@ export default function AttendanceScannerPage() {
         setMemberSub(null);
         setExpiryWarning(null);
         setRenewTarget(null);
+        setUnknownOffline(null);
         return;
       }
       return processCheckIn(member);
@@ -148,10 +403,14 @@ export default function AttendanceScannerPage() {
 
   // Check in by name, for the members who turn up knowing neither their code
   // nor their phone number. Matches any word of the name ("النجار" finds
-  // "عمر علي النجار").
+  // "عمر علي النجار"). Offline, it searches the saved roster instead.
   const runNameSearch = useCallback(async (raw) => {
     const term = raw.trim();
     if (!tenantId || term.length < 2) { setNameResults([]); return; }
+    if (!onlineRef.current) {
+      setNameResults(searchRoster(rosterRef.current, term, 8).map(rosterEntryToMember));
+      return;
+    }
     setNameSearching(true);
     try {
       setNameResults(await searchMembers(tenantId, term, 8));
@@ -219,9 +478,14 @@ export default function AttendanceScannerPage() {
   };
 
   const processCheckIn = async (member) => {
+    if (!onlineRef.current) {
+      const entry = rosterRef.current.members?.[member.id];
+      return entry ? offlineCheckIn(entry) : showUnknownOffline(member.membershipNumber || '', member);
+    }
     setMemberData(member);
     setExpiryWarning(null);
     setRenewTarget(null);
+    setUnknownOffline(null);
     loadMemberContext(member.id);
 
     // The member doc's `status` field is denormalised — it can drift out of
@@ -232,29 +496,31 @@ export default function AttendanceScannerPage() {
     // isn't enough either — a sub's status field can also be stale.
     //
     // The source of truth is the ENDATE on the newest few subs: if ANY of
-    // them is in the future, the member is really active. Uses the deployed
-    // (memberId ASC, createdAt DESC) index.
-    const { data: recentSubs } = await getTenantDocuments(tenantId, 'subscriptions',
-      [{ field: 'memberId', operator: '==', value: member.id }],
-      { field: 'createdAt', direction: 'desc' }, 5);
-    const nowMs = Date.now();
-    const activeSub = (recentSubs || [])
-      .filter(s => {
-        const end = s.endDate?.toDate ? s.endDate.toDate() : null;
-        // A cancelled sub is a real cancellation — don't resurrect one just
-        // because its endDate happens to still be in the future. Nor a renewed
-        // one: its term was replaced by the renewal. An old term whose dates
-        // were edited past the renewal's end won here, was flipped back to
-        // 'active' with 0 sessions left, and the member read as finished.
-        return end && end.getTime() > nowMs && s.status !== 'cancelled'
-          && s.status !== 'renewed' && !s.renewedToSubId;
-      })
-      .sort((a, b) => {
-        const ae = a.endDate?.toDate ? a.endDate.toDate().getTime() : 0;
-        const be = b.endDate?.toDate ? b.endDate.toDate().getTime() : 0;
-        return be - ae;
-      })[0] || null;
+    // them is in the future, the member is really active (pickActiveSub).
+    // Read from the server — a cached empty result would read as expired.
+    let recentSubs;
+    try {
+      recentSubs = await withTimeout(recentSubsFromServer(tenantId, member.id), SERVER_TIMEOUT_MS);
+    } catch (err) {
+      if (isNetworkError(err)) {
+        markOnline(false);
+        return processCheckIn(member);
+      }
+      console.error('[Scanner] subscriptions:', err);
+      setScanResult(isAr ? 'خطأ في تسجيل الحضور' : 'Check-in error');
+      setResultType('error');
+      return;
+    }
+    const activeSub = pickActiveSub(recentSubs, Date.now());
     const hasValidActive = !!activeSub;
+
+    // Keep this device's offline copy current with what the server just said.
+    {
+      const members = { ...(rosterRef.current.members || {}) };
+      if (activeSub) members[member.id] = toRosterEntry(member, activeSub);
+      else delete members[member.id];
+      setRoster({ ...rosterRef.current, members });
+    }
     // If the winning sub's own status is stale, patch it too so tables that
     // filter by status='active' (subscriptions page, dashboard) stop showing
     // it in the wrong bucket.
@@ -295,67 +561,18 @@ export default function AttendanceScannerPage() {
       return;
     }
 
-    // Session-plan members deduct one session per check-in; diamond members
-    // (unlimited plan) skip the sub write entirely.
-    const activeSubId = (member.currentPlan?.type !== 'diamond') ? (activeSub?.id || null) : null;
-
-    // Atomic check-in with up to TWO slots per day (morning + evening). Slot 1
-    // uses the legacy id `{memberId}_{dateStr}` so older records keep working;
-    // slot 2 uses `{memberId}_{dateStr}_2`. Reading both by id keeps this in a
-    // transaction — a rapid double-scan still can't create three rows or
-    // double-deduct a session on the same slot.
-    const dateStr = new Date().toISOString().split('T')[0];
-    const slot1Ref = doc(db, `tenants/${tenantId}/attendance/${member.id}_${dateStr}`);
-    const slot2Ref = doc(db, `tenants/${tenantId}/attendance/${member.id}_${dateStr}_2`);
-    const memberRef = doc(db, `tenants/${tenantId}/members/${member.id}`);
-    const subRef = activeSubId ? doc(db, `tenants/${tenantId}/subscriptions/${activeSubId}`) : null;
-
-    let attendanceRef = slot1Ref;
-    let visitSlot = 1;
-    // What the sub looks like after this visit, for the expiry warning.
-    let subTotalSessions = null;
-    let subRemainingAfter = null;
-
+    // Atomic check-in, up to two visits a day (see writeCheckIn). The queue
+    // entry is made up front: if the write times out it is queued under the
+    // same id, so a write that did land is not recorded twice on replay.
+    const queued = makeQueueEntry({
+      code: member.membershipNumber || '', memberId: member.id,
+      memberName: member.fullName?.[locale] || member.fullName?.ar || '',
+    });
+    let res;
     try {
-      await runTransaction(db, async (tx) => {
-        const [slot1Snap, slot2Snap] = await Promise.all([tx.get(slot1Ref), tx.get(slot2Ref)]);
-        if (slot1Snap.exists() && slot2Snap.exists()) throw new Error('already_checked_in_twice');
-        if (slot1Snap.exists()) { attendanceRef = slot2Ref; visitSlot = 2; }
-
-        let sessionDeducted = false;
-        if (subRef) {
-          const subSnap = await tx.get(subRef);
-          const sub = subSnap.exists() ? subSnap.data() : null;
-          if (sub && sub.totalSessions !== null) {
-            if ((sub.remainingSessions || 0) <= 0) throw new Error('no_sessions');
-            tx.update(subRef, {
-              usedSessions: (sub.usedSessions || 0) + 1,
-              remainingSessions: (sub.remainingSessions || 1) - 1,
-            });
-            sessionDeducted = true;
-            subTotalSessions = sub.totalSessions;
-            subRemainingAfter = (sub.remainingSessions || 1) - 1;
-          }
-        }
-
-        tx.set(attendanceRef, {
-          memberId: member.id,
-          memberName: member.fullName?.[locale] || member.fullName?.ar,
-          gender: member.gender,
-          checkIn: Timestamp.fromDate(new Date()),
-          method: 'qr_scan',
-          subscriptionId: activeSubId || member.currentPlan?.planId || '',
-          subscriptionStatus: effectiveStatus,
-          sessionDeducted,
-          visitSlot,
-          createdAt: Timestamp.fromDate(new Date()),
-          updatedAt: Timestamp.fromDate(new Date()),
-        });
-        tx.update(memberRef, {
-          lastVisit: Timestamp.fromDate(new Date()),
-          totalVisits: (member.totalVisits || 0) + 1,
-        });
-      });
+      res = await withTimeout(writeCheckIn({
+        tenantId, member, activeSub, subscriptionStatus: effectiveStatus, clientId: queued.id, locale,
+      }), 2 * SERVER_TIMEOUT_MS);
     } catch (err) {
       if (err.message === 'already_checked_in_twice') {
         setScanResult(t('attendance.alreadyCheckedInTwice'));
@@ -368,10 +585,24 @@ export default function AttendanceScannerPage() {
         setResultType('error');
         return;
       }
+      if (isNetworkError(err)) {
+        markOnline(false);
+        return offlineCheckIn(rosterRef.current.members[member.id], queued);
+      }
       console.error('Check-in error:', err);
       setScanResult(isAr ? 'خطأ في تسجيل الحضور' : 'Check-in error');
       setResultType('error');
       return;
+    }
+    const { visitSlot, subTotalSessions, subRemainingAfter } = res;
+
+    saveVisits(deviceStorage(), tenantId, visitsAfter(loadVisits(deviceStorage(), tenantId), member.id, Date.now()));
+    if (res.sessionDeducted && rosterRef.current.members[member.id]?.sub) {
+      const entry = rosterRef.current.members[member.id];
+      setRoster({
+        ...rosterRef.current,
+        members: { ...rosterRef.current.members, [member.id]: { ...entry, sub: { ...entry.sub, remainingSessions: subRemainingAfter } } },
+      });
     }
 
     setScanResult(t('attendance.checkInSuccess'));
@@ -387,6 +618,7 @@ export default function AttendanceScannerPage() {
     });
     if (warning) {
       setExpiryWarning(warning);
+      setExpiryNotified(true);
       setRenewTarget({ sub: activeSub, checkInAfter: false });
       sendExpiryNotification(member.id, activeSub?.id, warning);
     }
@@ -394,7 +626,7 @@ export default function AttendanceScannerPage() {
     // The history query was issued before this check-in existed — fold today's
     // visit in rather than paying for a second read.
     const nowTs = Timestamp.fromDate(new Date());
-    const newAttId = visitSlot === 2 ? `${member.id}_${dateStr}_2` : `${member.id}_${dateStr}`;
+    const newAttId = res.attendanceId;
     setMemberHistory(prev => (
       prev.some(a => a.id === newAttId)
         ? prev
@@ -479,12 +711,58 @@ export default function AttendanceScannerPage() {
     <div className="animate-fadeIn">
       <div className="page-header">
         <h1><span>📱</span> {t('attendance.scanQR')}</h1>
-        <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className={`badge ${online ? 'badge-success' : 'badge-danger'}`} style={{ fontSize: 'var(--font-size-sm)', padding: '8px 14px' }}
+            title={rosterInfo.builtAt
+              ? `${isAr ? 'النسخة المحفوظة' : 'Saved copy'}: ${rosterInfo.count} — ${new Date(rosterInfo.builtAt).toLocaleTimeString(isAr ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' })}`
+              : (isAr ? 'لسه مفيش نسخة محفوظة' : 'No saved copy yet')}>
+            {online ? '🟢' : '🔴'} {online
+              ? (isAr ? 'متصل' : 'Online')
+              : (isAr ? `من غير نت — شغال من النسخة المحفوظة (${rosterInfo.count} عضو)` : `Offline — using the saved copy (${rosterInfo.count})`)}
+          </span>
+          {queueCount > 0 && (
+            <button className="btn btn-secondary btn-sm" onClick={syncQueue} disabled={syncing}>
+              ⏳ {queueCount} {isAr ? 'حضور مستني يترفع' : 'waiting to upload'} {syncing ? '…' : (isAr ? '— ارفع دلوقتي' : '— upload now')}
+            </button>
+          )}
           <span className="badge badge-info" style={{ fontSize: 'var(--font-size-md)', padding: '8px 16px' }}>
             👥 {todayCount} {isAr ? 'زيارة اليوم' : 'visits today'}
           </span>
         </div>
       </div>
+
+      {/* Offline visits that would not have passed at the door — for the desk to chase. */}
+      {issues.length > 0 && (
+        <div className="card" style={{ marginBottom: 'var(--space-6)', border: '2px solid var(--pt-warning)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+            <h3 style={{ fontSize: 'var(--font-size-md)', color: 'var(--pt-warning)' }}>
+              ⚠️ {isAr ? 'حضور اتسجل من غير نت ومحتاج مراجعة' : 'Offline visits that need a look'} ({issues.length})
+            </h3>
+            <button className="btn btn-ghost btn-sm" onClick={() => dismissIssue(null)}>
+              {isAr ? 'مسح الكل' : 'Clear all'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+            {issues.map(issue => (
+              <div key={issue.id} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)',
+                padding: 'var(--space-2) var(--space-3)', background: 'var(--pt-darker)', borderRadius: 'var(--radius-sm)',
+              }}>
+                <div style={{ fontSize: 'var(--font-size-sm)' }}>
+                  <strong>{issue.memberName || issue.code || '—'}</strong>
+                  {issue.membershipNumber && <code dir="ltr" style={{ marginInlineStart: 8, color: 'var(--pt-gold)', fontSize: 'var(--font-size-xs)' }}>{issue.membershipNumber}</code>}
+                  <div style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-xs)' }}>
+                    {(ISSUE_TEXT[issue.reason] || ISSUE_TEXT.error)[isAr ? 'ar' : 'en']} • <span dir="ltr">
+                      {new Date(issue.at).toLocaleString(isAr ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => dismissIssue(issue.id)} aria-label={isAr ? 'تم' : 'Done'}>✓</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-2" style={{ gap: 'var(--space-6)' }}>
         {/* Scanner Area */}
@@ -611,11 +889,21 @@ export default function AttendanceScannerPage() {
                     {memberData.fullName?.[locale] || memberData.fullName?.ar} • 🎫 {memberData.membershipNumber}
                   </p>
                 )}
-                {memberData && renewTarget?.checkInAfter && (resultType === 'expired' || resultType === 'error') && (
+                {memberData && online && renewTarget?.checkInAfter && (resultType === 'expired' || resultType === 'error') && (
                   <button className="btn btn-primary" style={{ marginTop: 'var(--space-4)' }}
                     onClick={() => setShowRenewModal(true)}>
                     🔄 {isAr ? 'جدد الاشتراك وسجّل الحضور' : 'Renew and check in'}
                   </button>
+                )}
+                {unknownOffline && resultType === 'warning' && (
+                  <button className="btn btn-primary" style={{ marginTop: 'var(--space-4)' }} onClick={admitUnknownOffline}>
+                    ✅ {isAr ? 'سجّل حضوره مؤقتاً' : 'Let in for now'}
+                  </button>
+                )}
+                {!online && memberData && (resultType === 'expired' || resultType === 'error') && (
+                  <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)' }}>
+                    {isAr ? 'التجديد محتاج نت' : 'Renewing needs a connection'}
+                  </p>
                 )}
               </div>
             </div>
@@ -634,10 +922,12 @@ export default function AttendanceScannerPage() {
               <h3 style={{ color: 'var(--pt-warning)', marginBottom: 'var(--space-1)' }}>
                 {expiryWarningText(expiryWarning).desk[isAr ? 'ar' : 'en']}
               </h3>
-              <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-xs)' }}>
-                {isAr ? '🔔 اتبعتله إشعار في التطبيق' : '🔔 A notification was sent to their app'}
-              </p>
-              {renewTarget && !renewTarget.checkInAfter && (
+              {expiryNotified && (
+                <p style={{ color: 'var(--pt-gray-400)', fontSize: 'var(--font-size-xs)' }}>
+                  {isAr ? '🔔 اتبعتله إشعار في التطبيق' : '🔔 A notification was sent to their app'}
+                </p>
+              )}
+              {online && renewTarget && !renewTarget.checkInAfter && (
                 <button className="btn btn-primary" style={{ marginTop: 'var(--space-3)' }}
                   onClick={() => setShowRenewModal(true)}>
                   🔄 {isAr ? 'جدد دلوقتي' : 'Renew now'}
@@ -666,7 +956,7 @@ export default function AttendanceScannerPage() {
               subscription={memberSub}
               locale={locale}
               canSeeCredentials={tenantRole === 'owner' || isSuperAdmin}
-              onClose={() => { setMemberData(null); setMemberHistory([]); setMemberSub(null); setExpiryWarning(null); setRenewTarget(null); }}
+              onClose={() => { setMemberData(null); setMemberHistory([]); setMemberSub(null); setExpiryWarning(null); setRenewTarget(null); setUnknownOffline(null); }}
             />
           )}
 
@@ -705,7 +995,9 @@ export default function AttendanceScannerPage() {
                       <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600 }} dir="ltr">
                         {scan.checkIn?.toDate ? scan.checkIn.toDate().toLocaleTimeString(isAr ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' }) : '-'}
                       </div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-success)' }}>✓ {isAr ? 'حاضر' : 'Present'}</div>
+                      <div style={{ fontSize: 'var(--font-size-xs)', color: scan.offline ? 'var(--pt-warning)' : 'var(--pt-success)' }}>
+                        {scan.offline ? `⏳ ${isAr ? 'مستني يترفع' : 'Not uploaded yet'}` : `✓ ${isAr ? 'حاضر' : 'Present'}`}
+                      </div>
                     </div>
                   </div>
                 ))}

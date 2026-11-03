@@ -33,6 +33,7 @@ export default function SettingsPage() {
     enableSms: false,
     renewalReminderDays: 3,
     birthdayMessage: true,
+    lockersEnabled: true,
     expiryWarningEnabled: true,
     expiryWarningSessions: 2,
     expiryWarningDays: 2,
@@ -310,6 +311,32 @@ export default function SettingsPage() {
       {activeTab === 'system' && (
         <div className="card" style={{ maxWidth: 700 }}>
           <h3 style={{ marginBottom: 'var(--space-5)' }}>⚙️ {isAr ? 'إعدادات النظام' : 'System Settings'}</h3>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)',
+            padding: 'var(--space-4)', borderBottom: '1px solid var(--glass-border)',
+          }}>
+            <div>
+              <div style={{ fontWeight: 600 }}>🔑 {isAr ? 'رقم اللوكر عند الحضور' : 'Locker number at check-in'}</div>
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>
+                {isAr
+                  ? 'بعد ما العضو يسجّل حضور تظهر خانة اختيارية تكتب فيها أخد أنهي لوكر — وبيظهر في سجل الحضور.'
+                  : 'After a check-in an optional box lets the desk note which locker was taken — shown in the attendance log.'}
+              </div>
+            </div>
+            <button onClick={() => handleChange('lockersEnabled', settings.lockersEnabled === false)} style={{
+              width: 52, height: 28, borderRadius: 'var(--radius-full)', border: 'none', cursor: 'pointer', flexShrink: 0,
+              background: settings.lockersEnabled !== false ? 'var(--pt-gold)' : 'var(--pt-gray-700)',
+              position: 'relative', transition: 'background 0.3s',
+            }}>
+              <div style={{
+                width: 22, height: 22, borderRadius: 'var(--radius-full)',
+                background: 'white', position: 'absolute', top: 3,
+                transition: 'transform 0.3s',
+                transform: settings.lockersEnabled !== false ? (isAr ? 'translateX(-26px)' : 'translateX(26px)') : 'translateX(3px)',
+                insetInlineStart: 0,
+              }} />
+            </button>
+          </div>
           <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             padding: 'var(--space-4)', borderBottom: '1px solid var(--glass-border)',

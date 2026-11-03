@@ -25,6 +25,7 @@ export default function AttendanceLogsPage() {
   const [loading, setLoading] = useState(true);
   const [dateFilter, setDateFilter] = useState('today');
   const [genderFilter, setGenderFilter] = useState('all');
+  const [lockerFilter, setLockerFilter] = useState('');
   const [todayCount, setTodayCount] = useState(0);
   const [weekCount, setWeekCount] = useState(0);
   // deleteTarget: { candidates: [attendanceDoc, ...], selectedId }
@@ -75,6 +76,7 @@ export default function AttendanceLogsPage() {
 
   const filteredData = attendance.filter(a => {
     if (genderFilter !== 'all' && a.gender !== genderFilter) return false;
+    if (lockerFilter.trim() && String(a.lockerNumber || '').toLowerCase() !== lockerFilter.trim().toLowerCase()) return false;
     return true;
   });
 
@@ -224,6 +226,9 @@ export default function AttendanceLogsPage() {
           <option value="male">{t('common.male')} ♂</option>
           <option value="female">{t('common.female')} ♀</option>
         </select>
+        <input className="form-input" dir="ltr" style={{ width: 150 }} value={lockerFilter}
+          onChange={e => setLockerFilter(e.target.value)}
+          placeholder={isAr ? '🔑 رقم اللوكر' : '🔑 Locker no.'} />
         <button className="btn btn-ghost btn-sm" onClick={loadData}>🔄 {t('common.refresh')}</button>
       </div>
 
@@ -238,14 +243,15 @@ export default function AttendanceLogsPage() {
               <th>{t('attendance.checkIn')}</th>
               <th>{t('members.gender')}</th>
               <th>{isAr ? 'الطريقة' : 'Method'}</th>
+              <th>🔑 {isAr ? 'اللوكر' : 'Locker'}</th>
               {canDelete && <th style={{ width: 80 }}>{t('common.actions')}</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={canDelete ? 7 : 6} style={{ textAlign: 'center', padding: 'var(--space-8)' }}>{t('common.loading')}</td></tr>
+              <tr><td colSpan={canDelete ? 8 : 7} style={{ textAlign: 'center', padding: 'var(--space-8)' }}>{t('common.loading')}</td></tr>
             ) : filteredData.length === 0 ? (
-              <tr><td colSpan={canDelete ? 7 : 6} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--pt-gray-500)' }}>
+              <tr><td colSpan={canDelete ? 8 : 7} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--pt-gray-500)' }}>
                 <div style={{ fontSize: '2rem', marginBottom: 'var(--space-2)' }}>📭</div>{t('common.noData')}
               </td></tr>
             ) : (
@@ -277,6 +283,7 @@ export default function AttendanceLogsPage() {
                     </td>
                     <td>{att.gender === 'male' ? '♂️' : '♀️'} {t(`common.${att.gender}`)}</td>
                     <td><span className="badge badge-info" style={{ fontSize: '10px' }}>{att.method === 'qr_scan' ? '📱 QR' : '✍️'}</span></td>
+                    <td dir="ltr" style={{ fontWeight: att.lockerNumber ? 700 : 400, color: att.lockerNumber ? 'var(--pt-gold)' : 'var(--pt-gray-600)' }}>{att.lockerNumber || '—'}</td>
                     {canDelete && (
                       <td>
                         <button

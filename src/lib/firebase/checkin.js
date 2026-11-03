@@ -68,13 +68,16 @@ export async function recentSubsFromServer(tenantId, memberId) {
  * have committed; when the offline queue replays it, finding its own id on a
  * slot means it is already there, and nothing is written twice.
  *
+ * `lockerNumber` is optional: an offline visit carries the locker the desk
+ * typed while it waited in the queue. An online one gets it written afterwards.
+ *
  * Throws Error('already_checked_in_twice'), or Error('no_sessions') unless
  * `allowNoSessions` (a replay: the member already trained, so the visit is
  * recorded without a class and the caller flags it).
  */
 export async function writeCheckIn({
   tenantId, member, activeSub, subscriptionStatus = 'active', atMs = Date.now(),
-  clientId, locale = 'ar', offline = false, allowNoSessions = false, setLastVisit = true,
+  clientId, locale = 'ar', offline = false, allowNoSessions = false, setLastVisit = true, lockerNumber = '',
 }) {
   // Diamond (unlimited) members skip the subscription write entirely.
   const activeSubId = member.currentPlan?.type !== 'diamond' ? (activeSub?.id || null) : null;
@@ -131,6 +134,7 @@ export async function writeCheckIn({
       sessionDeducted: result.sessionDeducted,
       visitSlot: result.visitSlot,
       clientCheckInId: clientId || null,
+      ...(lockerNumber ? { lockerNumber: String(lockerNumber) } : {}),
       ...(offline ? { offline: true, syncedAt: serverTimestamp() } : {}),
       createdAt: at,
       updatedAt: at,
@@ -181,11 +185,14 @@ export async function buildRoster(tenantId) {
  * queued. Anything that would not have passed at the door is still recorded —
  * the member did come in — and reported as an issue.
  *
- * @returns {{ done: string[], issues: object[], offline: boolean }}
+ * `written` maps each uploaded entry's id to the attendance doc it became.
+ *
+ * @returns {{ done: string[], issues: object[], offline: boolean, written: Object<string, string> }}
  */
 export async function replayQueue(tenantId, queue, { locale = 'ar' } = {}) {
   const done = [];
   const issues = [];
+  const written = {};
   const issue = (entry, reason, member) => issues.push({
     id: entry.id, at: entry.at, code: entry.code, reason,
     memberId: member?.id || entry.memberId || null,
@@ -212,18 +219,19 @@ export async function replayQueue(tenantId, queue, { locale = 'ar' } = {}) {
       const res = await writeCheckIn({
         tenantId, member, activeSub: status === 'active' ? activeSub : null, subscriptionStatus: status,
         atMs: entry.at, clientId: entry.id, locale, offline: true, allowNoSessions: true,
-        setLastVisit: entry.at > lastMs,
+        setLastVisit: entry.at > lastMs, lockerNumber: entry.lockerNumber || '',
       });
       if (!res.duplicate) {
+        written[entry.id] = res.attendanceId;
         if (status !== 'active') issue(entry, status, member);
         else if (res.noSessions) issue(entry, 'no_sessions', member);
       }
       done.push(entry.id);
     } catch (err) {
-      if (isNetworkError(err)) return { done, issues, offline: true };
+      if (isNetworkError(err)) return { done, issues, offline: true, written };
       issue(entry, err.message === 'already_checked_in_twice' ? 'third_visit' : 'error', member);
       done.push(entry.id);
     }
   }
-  return { done, issues, offline: false };
+  return { done, issues, offline: false, written };
 }

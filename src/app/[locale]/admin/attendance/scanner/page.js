@@ -74,6 +74,15 @@ export default function AttendanceScannerPage() {
   // Whether the member's app was actually notified about the warning (it is
   // not while offline).
   const [expiryNotified, setExpiryNotified] = useState(false);
+  // Optional locker number for the visit just recorded (admin/settings → system).
+  // `lastVisit` is { memberId, attendanceId } online, { memberId, queueId } while
+  // the visit still waits in the offline queue.
+  const [lockersEnabled, setLockersEnabled] = useState(true);
+  const [lastVisit, setLastVisit] = useState(null);
+  const [lockerInput, setLockerInput] = useState('');
+  const [lockerSaved, setLockerSaved] = useState('');
+  const [lockerSaving, setLockerSaving] = useState(false);
+  const [lockerFailed, setLockerFailed] = useState(false);
   const scannerRef = useRef(null);
   const html5QrCode = useRef(null);
 
@@ -143,12 +152,15 @@ export default function AttendanceScannerPage() {
     } catch {}
   }, []);
 
-  // The gym's expiry-warning options (admin/settings → notifications). Read once
-  // per page load; a missing document keeps the defaults.
+  // The gym's expiry-warning and locker options (admin/settings). Read once per
+  // page load; a missing document keeps the defaults.
   useEffect(() => {
     if (!tenantId) return;
     getTenantDocument(tenantId, 'config', 'settings')
-      .then(({ data }) => { warningSettingsRef.current = toExpiryWarningSettings(data || {}); })
+      .then(({ data }) => {
+        warningSettingsRef.current = toExpiryWarningSettings(data || {});
+        setLockersEnabled(data?.lockersEnabled !== false);
+      })
       .catch(err => console.warn('[Scanner] settings:', err));
   }, [tenantId]);
 
@@ -211,6 +223,10 @@ export default function AttendanceScannerPage() {
         }
         markOnline(!res.offline);
         if (res.done.length) loadTodayCount();
+        // The visit on screen was just uploaded: a locker typed from now on goes to its attendance doc.
+        setLastVisit(v => (v?.queueId && res.written?.[v.queueId]
+          ? { memberId: v.memberId, attendanceId: res.written[v.queueId] }
+          : v));
       }
     } catch (err) {
       if (!isNetworkError(err)) console.warn('[Scanner] sync:', err);
@@ -267,10 +283,51 @@ export default function AttendanceScannerPage() {
     setQueueCount(queue.length);
   };
 
-  const countOfflineVisit = (memberId, memberName, gender, atMs) => {
+  const countOfflineVisit = (memberId, memberName, gender, atMs, id = `local_${atMs}`) => {
     if (memberId) saveVisits(deviceStorage(), tenantId, visitsAfter(loadVisits(deviceStorage(), tenantId), memberId, atMs));
     setTodayCount(prev => prev + 1);
-    setRecentScans(prev => [{ id: `local_${atMs}`, memberName, gender, checkIn: Timestamp.fromMillis(atMs), offline: true }, ...prev].slice(0, 5));
+    setRecentScans(prev => [{ id, memberName, gender, checkIn: Timestamp.fromMillis(atMs), offline: true }, ...prev].slice(0, 5));
+  };
+
+  // A new visit was recorded: offer the locker box for it, empty.
+  const startVisit = (visit) => {
+    setLastVisit(visit);
+    setLockerInput('');
+    setLockerSaved('');
+    setLockerFailed(false);
+  };
+
+  // Note the locker on the visit just recorded. Online it goes on the
+  // attendance doc; a visit still in the offline queue carries it until upload.
+  const saveLocker = async () => {
+    const value = lockerInput.trim();
+    if (!lastVisit || lockerSaving || !value || value === lockerSaved) return;
+    setLockerSaving(true);
+    setLockerFailed(false);
+    let ok = false;
+    if (lastVisit.queueId) {
+      const s = deviceStorage();
+      const queue = loadQueue(s, tenantId);
+      if (queue.some(e => e.id === lastVisit.queueId)) {
+        saveQueue(s, tenantId, queue.map(e => (e.id === lastVisit.queueId ? { ...e, lockerNumber: value } : e)));
+        ok = true;
+      }
+    } else if (lastVisit.attendanceId) {
+      try {
+        const { error } = await withTimeout(
+          updateTenantDocument(tenantId, 'attendance', lastVisit.attendanceId, { lockerNumber: value }),
+          SERVER_TIMEOUT_MS);
+        ok = !error;
+      } catch (err) {
+        // No answer in time: Firestore keeps the write and sends it once the connection is back.
+        ok = isNetworkError(err);
+      }
+    }
+    setLockerSaving(false);
+    if (!ok) { setLockerFailed(true); return; }
+    setLockerSaved(value);
+    const scanId = lastVisit.attendanceId || lastVisit.queueId;
+    setRecentScans(prev => prev.map(sc => (sc.id === scanId ? { ...sc, lockerNumber: value } : sc)));
   };
 
   // Decide from the roster alone and queue the visit. `queued` is passed when
@@ -282,6 +339,7 @@ export default function AttendanceScannerPage() {
     setUnknownOffline(null);
     setRenewTarget(null);
     setExpiryWarning(null);
+    setLastVisit(null);
     setMemberData(member);
     setMemberHistory([]);
     setHistoryLoading(false);
@@ -307,10 +365,12 @@ export default function AttendanceScannerPage() {
       return;
     }
 
-    enqueue(queued || makeQueueEntry({ code: entry.membershipNumber, memberId: entry.id, memberName: name, atMs: nowMs }));
+    const visit = queued || makeQueueEntry({ code: entry.membershipNumber, memberId: entry.id, memberName: name, atMs: nowMs });
+    enqueue(visit);
     const roster = rosterAfterVisit(rosterRef.current, entry.id);
     setRoster(roster);
-    countOfflineVisit(entry.id, name, entry.gender, nowMs);
+    countOfflineVisit(entry.id, name, entry.gender, nowMs, visit.id);
+    startVisit({ memberId: entry.id, queueId: visit.id });
 
     const after = roster.members[entry.id];
     setMemberData(rosterEntryToMember(after));
@@ -343,6 +403,7 @@ export default function AttendanceScannerPage() {
     setMemberSub(null);
     setExpiryWarning(null);
     setRenewTarget(null);
+    setLastVisit(null);
     setUnknownOffline({ code, memberId: member?.id || null, memberName: member?.fullName?.[locale] || member?.fullName?.ar || '' });
     setScanResult(isAr
       ? 'مفيش نت، والكود ده مش في النسخة المحفوظة — غالباً اشتراكه منتهي'
@@ -353,8 +414,10 @@ export default function AttendanceScannerPage() {
   const admitUnknownOffline = () => {
     if (!unknownOffline) return;
     const nowMs = Date.now();
-    enqueue(makeQueueEntry({ ...unknownOffline, verified: false, atMs: nowMs }));
-    countOfflineVisit(unknownOffline.memberId, unknownOffline.memberName || unknownOffline.code, memberData?.gender, nowMs);
+    const visit = makeQueueEntry({ ...unknownOffline, verified: false, atMs: nowMs });
+    enqueue(visit);
+    countOfflineVisit(unknownOffline.memberId, unknownOffline.memberName || unknownOffline.code, memberData?.gender, nowMs, visit.id);
+    startVisit({ memberId: unknownOffline.memberId, queueId: visit.id });
     setUnknownOffline(null);
     setScanResult(isAr ? 'اتسجل مؤقتاً — هيتراجع أول ما النت يرجع' : 'Recorded for now — checked when the connection is back');
     setResultType('success');
@@ -391,6 +454,7 @@ export default function AttendanceScannerPage() {
         setExpiryWarning(null);
         setRenewTarget(null);
         setUnknownOffline(null);
+        setLastVisit(null);
         return;
       }
       return processCheckIn(member);
@@ -486,6 +550,7 @@ export default function AttendanceScannerPage() {
     setExpiryWarning(null);
     setRenewTarget(null);
     setUnknownOffline(null);
+    setLastVisit(null);
     loadMemberContext(member.id);
 
     // The member doc's `status` field is denormalised — it can drift out of
@@ -609,6 +674,11 @@ export default function AttendanceScannerPage() {
     setResultType('success');
     playSound('success');
     setTodayCount(prev => prev + 1);
+    startVisit({ memberId: member.id, attendanceId: res.attendanceId });
+    setRecentScans(prev => [
+      { id: res.attendanceId, memberName: member.fullName?.[locale] || member.fullName?.ar, gender: member.gender, checkIn: Timestamp.fromMillis(Date.now()) },
+      ...prev.filter(sc => sc.id !== res.attendanceId),
+    ].slice(0, 5));
 
     const warning = computeExpiryWarning({
       totalSessions: subTotalSessions,
@@ -936,6 +1006,31 @@ export default function AttendanceScannerPage() {
             </div>
           )}
 
+          {/* Optional: which locker the member took */}
+          {lockersEnabled && lastVisit && (
+            <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+              <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600 }}>🔑 {isAr ? 'أخد لوكر رقم' : 'Locker number'}</span>
+                <input className="form-input" dir="ltr" style={{ width: 110 }} maxLength={10}
+                  value={lockerInput} placeholder={isAr ? 'اختياري' : 'Optional'}
+                  onChange={e => { setLockerInput(e.target.value); setLockerFailed(false); }}
+                  onKeyDown={e => { if (e.key === 'Enter') saveLocker(); }} />
+                <button className="btn btn-secondary btn-sm" onClick={saveLocker}
+                  disabled={lockerSaving || !lockerInput.trim() || lockerInput.trim() === lockerSaved}>
+                  {lockerSaving ? '…' : (isAr ? 'حفظ' : 'Save')}
+                </button>
+                {lockerSaved && lockerInput.trim() === lockerSaved && (
+                  <span style={{ color: 'var(--pt-success)', fontSize: 'var(--font-size-sm)' }}>✓ {isAr ? 'اتسجل' : 'Saved'}</span>
+                )}
+                {lockerFailed && (
+                  <span style={{ color: 'var(--pt-danger)', fontSize: 'var(--font-size-sm)' }}>
+                    {isAr ? 'مقدرتش أحفظه — جرّب تاني' : 'Could not save — try again'}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {showRenewModal && memberData && (
             <RenewSubscriptionModal
               tenantId={tenantId}
@@ -956,7 +1051,7 @@ export default function AttendanceScannerPage() {
               subscription={memberSub}
               locale={locale}
               canSeeCredentials={tenantRole === 'owner' || isSuperAdmin}
-              onClose={() => { setMemberData(null); setMemberHistory([]); setMemberSub(null); setExpiryWarning(null); setRenewTarget(null); setUnknownOffline(null); }}
+              onClose={() => { setMemberData(null); setMemberHistory([]); setMemberSub(null); setExpiryWarning(null); setRenewTarget(null); setUnknownOffline(null); setLastVisit(null); }}
             />
           )}
 
@@ -988,6 +1083,7 @@ export default function AttendanceScannerPage() {
                         <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>{scan.memberName}</div>
                         <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--pt-gray-500)' }}>
                           {scan.gender === 'male' ? '♂' : '♀'}
+                          {scan.lockerNumber && <span style={{ marginInlineStart: 8 }}>🔑 {scan.lockerNumber}</span>}
                         </div>
                       </div>
                     </div>

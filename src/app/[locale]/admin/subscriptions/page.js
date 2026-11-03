@@ -13,6 +13,7 @@ import {
 } from '@/lib/expired-export';
 import { downloadXlsx } from '@/lib/xlsx-download';
 import { isStillLapsed } from '@/lib/follow-up';
+import { daysLeftInTerm, isWithinTerm } from '@/lib/subscription-end';
 import { useTenant } from '@/context/TenantContext';
 import RenewSubscriptionModal from '@/components/RenewSubscriptionModal';
 import { Timestamp } from 'firebase/firestore';
@@ -218,7 +219,7 @@ export default function SubscriptionsPage() {
   const getRemainingDays = (sub) => {
     if (!sub.endDate) return 0;
     const end = sub.endDate?.toDate ? sub.endDate.toDate() : new Date(sub.endDate);
-    return Math.max(0, Math.ceil((end - new Date()) / (1000 * 60 * 60 * 24)));
+    return daysLeftInTerm(end);
   };
 
   // Status is filtered server-side; plan type is a cheap in-page refinement.
@@ -620,7 +621,7 @@ export default function SubscriptionsPage() {
                   </div>
                 )}
 
-                {parsedEnd && parsedEnd.getTime() < Date.now() && (
+                {parsedEnd && !isWithinTerm(parsedEnd) && (
                   <p style={{ color: 'var(--pt-warning)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-3)' }}>
                     ⚠️ {isAr
                       ? 'تاريخ النهاية ده في الماضي — الاشتراك هيبقى منتهي.'

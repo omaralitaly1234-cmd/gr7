@@ -19,6 +19,7 @@
 
 // Extension included so `node --test` (plain ESM, no bundler) can resolve it.
 import { toDate } from './format.js';
+import { isWithinTerm } from './subscription-end.js';
 
 const MS_PER_DAY = 86400000;
 
@@ -74,7 +75,7 @@ export function isStillLapsed(sub, member, nowMs = Date.now()) {
   if (RENEWED_STATUSES.has(member.status)) return false;
   const subEnd = toDate(sub.endDate);
   const memberEnd = toDate(member.endDate);
-  if (memberEnd && memberEnd.getTime() > nowMs) return false;
+  if (memberEnd && isWithinTerm(memberEnd, nowMs)) return false;
   if (subEnd && memberEnd && memberEnd.getTime() > subEnd.getTime() + MS_PER_DAY) return false;
   return true;
 }
@@ -120,7 +121,7 @@ export function buildAbsentRows(members, { nowMs = Date.now(), seen = new Set() 
     if (!member?.id || seen.has(member.id)) continue;
     if (member.status !== 'active') continue;
     const end = toDate(member.endDate);
-    if (end && end.getTime() < nowMs) continue;
+    if (end && !isWithinTerm(end, nowMs)) continue;
     seen.add(member.id);
     const last = toDate(member.lastVisit);
     rows.push({

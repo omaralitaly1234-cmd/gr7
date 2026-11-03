@@ -87,7 +87,7 @@ test('the file name is date-stamped and ends in .xlsx', () => {
 test('the active sheet has the same columns, with days left in place of days since expiry', () => {
   const ar = ACTIVE_EXPORT_HEADERS.ar;
   const [row] = buildActiveRows([sub], members, { locale: 'ar', nowMs: new Date(2026, 5, 21).getTime() });
-  assert.equal(row[ar.daysLeft], 10);
+  assert.equal(row[ar.daysLeft], 11, '21 June through 1 July, the end date counted');
   assert.equal(row[AR.daysSince], undefined);
   assert.equal(row[ar.name], 'أحمد محمد');
   assert.equal(row[ar.phone], '01012345678');

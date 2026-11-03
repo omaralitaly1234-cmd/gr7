@@ -4,6 +4,8 @@
 // model and the maxFreezeDays cap are computed identically everywhere.
 // ============================================
 
+import { isWithinTerm } from './subscription-end.js';
+
 /**
  * Compute the result of freezing a subscription for `days`, using the up-front
  * model (end date extended immediately by N days).
@@ -99,8 +101,8 @@ export function computeRenewal({
  *
  * Mirrors the day carry-over in computeRenewal: renewing early must not throw
  * away what the member already paid for. Only while the current term is still
- * running, and only class plan → class plan; a renewal onto an unlimited plan
- * has nothing to add them to.
+ * running (its last day included), and only class plan → class plan; a renewal
+ * onto an unlimited plan has nothing to add them to.
  *
  * @param {{ currentTotalSessions?: number|null, currentRemainingSessions?: number|null,
  *           currentEndDateMs?: number|null, newPlanSessions?: number|null, nowMs?: number }} input
@@ -115,8 +117,7 @@ export function computeCarriedSessions({
 }) {
   if (currentTotalSessions === null || currentTotalSessions === undefined) return 0;
   if (newPlanSessions === null || newPlanSessions === undefined) return 0;
-  const end = Number(currentEndDateMs);
-  if (!Number.isFinite(end) || end <= Number(nowMs)) return 0;
+  if (!isWithinTerm(Number(currentEndDateMs), Number(nowMs))) return 0;
   const left = Math.floor(Number(currentRemainingSessions));
   return Number.isFinite(left) && left > 0 ? left : 0;
 }

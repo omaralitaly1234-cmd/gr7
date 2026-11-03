@@ -18,6 +18,7 @@
 
 import { normalizeCode } from './member-code.js';
 import { memberMatchesName } from './name-search.js';
+import { isWithinTerm } from './subscription-end.js';
 
 /** Rebuild the roster when it is older than this (while online). */
 export const ROSTER_MAX_AGE_MS = 2 * 60 * 60 * 1000;
@@ -42,17 +43,15 @@ function toMs(v) {
  * The subscription that lets this member in at `atMs`, or null.
  *
  * The member doc's status is denormalised and can be stale, and so can a sub's
- * own status, so the end date decides — on the newest few subs. A cancelled sub
- * is a real cancellation, and a renewed one was replaced by its renewal. Of the
- * survivors the one ending last wins.
+ * own status, so the end date decides — on the newest few subs, and the member
+ * keeps the whole of its last day (isWithinTerm). A cancelled sub is a real
+ * cancellation, and a renewed one was replaced by its renewal. Of the survivors
+ * the one ending last wins.
  */
 export function pickActiveSub(subs, atMs) {
   return (subs || [])
-    .filter(s => {
-      const end = toMs(s.endDate);
-      return end && end > atMs && s.status !== 'cancelled'
-        && s.status !== 'renewed' && !s.renewedToSubId;
-    })
+    .filter(s => isWithinTerm(toMs(s.endDate), atMs) && s.status !== 'cancelled'
+      && s.status !== 'renewed' && !s.renewedToSubId)
     .sort((a, b) => (toMs(b.endDate) || 0) - (toMs(a.endDate) || 0))[0] || null;
 }
 
@@ -86,7 +85,7 @@ export function toRosterEntry(member, sub) {
 
 /** A roster entry shaped like a member doc, for the scanner's member card. */
 export function rosterEntryToMember(entry) {
-  const active = entry.sub && entry.sub.endMs > Date.now();
+  const active = entry.sub && isWithinTerm(entry.sub.endMs, Date.now());
   return {
     id: entry.id,
     fullName: entry.fullName,
@@ -137,7 +136,7 @@ export function searchRoster(roster, queryText, limit = 8) {
  */
 export function offlineVerdict(entry, atMs, visitsToday = 0) {
   const sub = entry?.sub;
-  if (!sub || !sub.endMs || sub.endMs <= atMs) return { ok: false, reason: 'expired' };
+  if (!sub || !isWithinTerm(sub.endMs, atMs)) return { ok: false, reason: 'expired' };
   if (sub.status === 'frozen') return { ok: false, reason: 'frozen' };
   if (visitsToday >= 2) return { ok: false, reason: 'twice' };
   const counted = entry.planType !== 'diamond' && sub.totalSessions !== null && sub.totalSessions !== undefined;

@@ -22,6 +22,7 @@ import { normalizeCode } from '@/lib/member-code';
 import {
   pickActiveSub, toRosterEntry, attendanceDateStr, isNetworkError, withTimeout,
 } from '@/lib/offline-checkin';
+import { startOfGymDayMs } from '@/lib/subscription-end';
 
 // How long a live scan waits on the server before treating the desk as offline.
 export const SERVER_TIMEOUT_MS = 5000;
@@ -144,15 +145,16 @@ export async function writeCheckIn({
 }
 
 /**
- * Everyone who can currently get in: subscriptions ending in the future (~430
- * at the live gym, a bounded range read), the winning one per member, and those
- * members' docs by id. Returns the roster object the scanner stores.
+ * Everyone who can currently get in: subscriptions ending today or later (~430
+ * at the live gym, a bounded range read — a sub ending earlier today still has
+ * the rest of its last day), the winning one per member, and those members'
+ * docs by id. Returns the roster object the scanner stores.
  */
 export async function buildRoster(tenantId) {
   const nowMs = Date.now();
   const snap = await withTimeout(getDocsFromServer(query(
     collection(db, getTenantPath(tenantId, 'subscriptions')),
-    where('endDate', '>=', Timestamp.fromMillis(nowMs)),
+    where('endDate', '>=', Timestamp.fromMillis(startOfGymDayMs(nowMs))),
   )), 30000);
 
   const byMember = new Map();

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { getTenantDocument, getTenantDocuments } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { daysLeftInTerm } from '@/lib/subscription-end';
 
 export default function ClientDashboardPage() {
   const t = useTranslations();
@@ -55,7 +56,7 @@ export default function ClientDashboardPage() {
   const getDaysLeft = () => {
     if (!subscription?.endDate) return 0;
     const end = subscription.endDate?.toDate ? subscription.endDate.toDate() : new Date(subscription.endDate);
-    return Math.max(0, Math.ceil((end - new Date()) / (1000 * 60 * 60 * 24)));
+    return daysLeftInTerm(end);
   };
 
   const daysLeft = getDaysLeft();

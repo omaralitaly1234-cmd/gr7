@@ -18,17 +18,19 @@ test('12-class plan warns at 2, 1 and 0 classes left, not at 3', () => {
   assert.deepEqual(at(0), { kind: 'sessions', left: 0 });
 });
 
-test('month plan warns at 2 and 1 days left, not at 3', () => {
+// Days are counted with the end date itself as the last day (subscription-end.js).
+test('month plan warns the day before (2 left) and on its last day (1 left), not 2 days before', () => {
   const at = (endDateMs) => computeExpiryWarning({ totalSessions: null, endDateMs, nowMs: now });
-  assert.equal(at(now + 3 * DAY), null);
-  assert.deepEqual(at(now + 2 * DAY), { kind: 'days', left: 2 });
-  assert.deepEqual(at(now + 1.5 * DAY), { kind: 'days', left: 2 });
-  assert.deepEqual(at(now + 1 * DAY), { kind: 'days', left: 1 });
+  assert.equal(at(now + 2 * DAY), null);
+  assert.deepEqual(at(now + 1 * DAY), { kind: 'days', left: 2 });
   assert.deepEqual(at(now + 2 * 3600000), { kind: 'days', left: 1 });
+  // Ends today at an hour already gone: still its last day, not expired.
+  assert.deepEqual(at(now - 2 * 3600000), { kind: 'days', left: 1 });
+  assert.equal(at(now - DAY), null);
 });
 
 test('a session plan still warns on its end date when classes are plentiful', () => {
-  const w = computeExpiryWarning({ totalSessions: 12, remainingSessions: 7, endDateMs: now + DAY, nowMs: now });
+  const w = computeExpiryWarning({ totalSessions: 12, remainingSessions: 7, endDateMs: now + 2 * 3600000, nowMs: now });
   assert.deepEqual(w, { kind: 'days', left: 1 });
 });
 
@@ -55,7 +57,7 @@ test('settings: defaults on, thresholds clamp to whole numbers 1..30', () => {
 test('custom thresholds are honoured', () => {
   const s = toExpiryWarningSettings({ expiryWarningSessions: 3, expiryWarningDays: 5 });
   assert.deepEqual(computeExpiryWarning({ totalSessions: 12, remainingSessions: 3, endDateMs: far, nowMs: now, settings: s }), { kind: 'sessions', left: 3 });
-  assert.deepEqual(computeExpiryWarning({ endDateMs: now + 5 * DAY, nowMs: now, settings: s }), { kind: 'days', left: 5 });
+  assert.deepEqual(computeExpiryWarning({ endDateMs: now + 4 * DAY, nowMs: now, settings: s }), { kind: 'days', left: 5 });
 });
 
 test('text uses the Arabic dual and a last-class wording', () => {

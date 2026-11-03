@@ -11,6 +11,7 @@ import { nameSearchTokens, NAME_TOKENS_FIELD } from '@/lib/name-search';
 import { useTenant } from '@/context/TenantContext';
 import { useMembershipPlans } from '@/lib/hooks/useMembershipPlans';
 import { Timestamp } from 'firebase/firestore';
+import { isWithinTerm } from '@/lib/subscription-end';
 import styles from './members.module.css';
 
 const PAGE_SIZE = 25;
@@ -830,7 +831,7 @@ export default function MembersPage() {
                       </div>
                     )}
 
-                    {parsedEnd && parsedEnd.getTime() < Date.now() && (
+                    {parsedEnd && !isWithinTerm(parsedEnd) && (
                       <p style={{ color: 'var(--pt-warning)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-3)' }}>
                         ⚠️ {isAr
                           ? 'تاريخ النهاية في الماضي — الاشتراك هيبقى منتهي.'

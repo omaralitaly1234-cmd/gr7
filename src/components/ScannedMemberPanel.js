@@ -13,6 +13,7 @@ import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { toDate } from '@/lib/format';
+import { daysLeftInTerm } from '@/lib/subscription-end';
 
 const DAY = 86400000;
 
@@ -88,7 +89,7 @@ export default function ScannedMemberPanel({
   const remainingDays = useMemo(() => {
     const end = toDate(subscription?.endDate || member?.endDate);
     if (!end) return null;
-    return Math.max(0, Math.ceil((end.getTime() - Date.now()) / DAY));
+    return daysLeftInTerm(end.getTime());
   }, [subscription, member]);
 
   if (!member) return null;

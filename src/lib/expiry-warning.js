@@ -5,13 +5,14 @@
 // gym's threshold (2 by default, then again at 1 and on the last class). A
 // time plan (a month, three months, diamond) warns when the days left until
 // its end date drop to the threshold (2 by default, then again at 1). The days
-// count is the same ceil() the scanner's member card shows, so the warning and
-// the "Days left" row never disagree.
+// count is the same daysLeftInTerm() the scanner's member card shows — the end
+// date itself counts as the last day — so the warning and the "Days left" row
+// never disagree.
 //
 // Pure, no Firebase, so the scanner, the settings page and the tests share it.
 // ============================================
 
-const DAY = 86400000;
+import { daysLeftInTerm } from './subscription-end.js';
 
 export const DEFAULT_EXPIRY_WARNING = {
   enabled: true,
@@ -62,11 +63,8 @@ export function computeExpiryWarning({
     if (left <= settings.sessionsBefore) return { kind: 'sessions', left };
   }
 
-  const end = Number(endDateMs);
-  if (Number.isFinite(end) && end > nowMs) {
-    const left = Math.ceil((end - nowMs) / DAY);
-    if (left <= settings.daysBefore) return { kind: 'days', left };
-  }
+  const left = daysLeftInTerm(endDateMs, nowMs);
+  if (left > 0 && left <= settings.daysBefore) return { kind: 'days', left };
 
   return null;
 }

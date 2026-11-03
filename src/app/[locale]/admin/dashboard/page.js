@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { getTenantDocuments, getTenantDocument, getTenantCollectionCount, getTenantFieldSum } from '@/lib/firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { Timestamp } from 'firebase/firestore';
+import { daysLeftInTerm } from '@/lib/subscription-end';
 
 export default function AdminDashboardPage() {
   const t = useTranslations();
@@ -295,7 +296,7 @@ export default function AdminDashboardPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               {expiringMembers.map((sub, i) => {
                 const endDate = sub.endDate?.toDate ? sub.endDate.toDate() : null;
-                const daysLeft = endDate ? Math.ceil((endDate - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+                const daysLeft = endDate ? daysLeftInTerm(endDate) : 0;
                 return (
                   <div key={i} style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',

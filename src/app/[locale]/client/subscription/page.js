@@ -8,6 +8,7 @@ import { authPost } from '@/lib/authenticated-fetch';
 import { formatDate } from '@/lib/format';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { daysLeftInTerm } from '@/lib/subscription-end';
 import toast from 'react-hot-toast';
 
 export default function ClientSubscriptionPage() {
@@ -68,7 +69,7 @@ export default function ClientSubscriptionPage() {
 
   const toDate = (ts) => { if (!ts) return null; if (ts.toDate) return ts.toDate(); if (ts.seconds) return new Date(ts.seconds * 1000); return new Date(ts); };
   const formatDate = (ts) => { const d = toDate(ts); if (!d) return '-'; return d.toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }); };
-  const getDaysLeft = () => { if (!subscription?.endDate) return 0; const end = toDate(subscription.endDate); return Math.max(0, Math.ceil((end - new Date()) / (1000 * 60 * 60 * 24))); };
+  const getDaysLeft = () => { if (!subscription?.endDate) return 0; const end = toDate(subscription.endDate); return daysLeftInTerm(end); };
   const getTotalDays = () => { if (!subscription?.startDate || !subscription?.endDate) return subscription?.planSnapshot?.duration || 30; const s = toDate(subscription.startDate); const e = toDate(subscription.endDate); return Math.max(1, Math.ceil((e - s) / (1000 * 60 * 60 * 24))); };
 
   const remaining = getDaysLeft();

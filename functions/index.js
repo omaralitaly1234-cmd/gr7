@@ -17,21 +17,44 @@ const db = admin.firestore();
 const { Timestamp } = admin.firestore;
 
 const TZ = 'Africa/Cairo';
+const DAY_MS = 86400000;
+
+// Midnight in Cairo at the start of the day `ms` falls on. A copy of
+// startOfGymDayMs in src/lib/subscription-end.js (this package cannot import
+// the app's ES modules) — keep the two in step.
+const wallFmt = new Intl.DateTimeFormat('en-US', {
+  timeZone: TZ, hourCycle: 'h23',
+  year: 'numeric', month: 'numeric', day: 'numeric',
+  hour: 'numeric', minute: 'numeric', second: 'numeric',
+});
+function cairoOffsetMs(ms) {
+  const p = {};
+  for (const { type, value } of wallFmt.formatToParts(ms)) p[type] = Number(value);
+  const wall = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return wall - (ms - (((ms % 1000) + 1000) % 1000));
+}
+function startOfGymDayMs(ms) {
+  const wallMidnight = Math.floor((ms + cairoOffsetMs(ms)) / DAY_MS) * DAY_MS;
+  return wallMidnight - cairoOffsetMs(wallMidnight - cairoOffsetMs(ms));
+}
 
 /**
  * Daily: expire member subscriptions (and their member docs) and tenant SaaS
- * subscriptions whose end date has passed.
+ * subscriptions whose end date has passed. A member keeps the whole of the
+ * day their subscription ends on, so only end dates before today (Cairo) are
+ * expired — one ending on the 1st, at any hour, is expired on the 2nd.
  * Requires the collection-group index subscriptions(status ASC, endDate ASC),
  * which is present in firestore.indexes.json.
  */
 exports.expireSubscriptions = onSchedule({ schedule: 'every day 02:00', timeZone: TZ }, async () => {
   const now = Timestamp.now();
+  const startOfToday = Timestamp.fromMillis(startOfGymDayMs(now.toMillis()));
 
-  // 1) Member subscriptions past their end date.
+  // 1) Member subscriptions whose last day was yesterday or earlier.
   const subs = await db
     .collectionGroup('subscriptions')
     .where('status', '==', 'active')
-    .where('endDate', '<', now)
+    .where('endDate', '<', startOfToday)
     .get();
 
   let expiredSubs = 0;

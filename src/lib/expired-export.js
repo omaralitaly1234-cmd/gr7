@@ -12,6 +12,7 @@
 
 // Extension included so `node --test` (plain ESM, no bundler) can resolve it.
 import { toDate } from './format.js';
+import { daysLeftInTerm } from './subscription-end.js';
 
 const MS_PER_DAY = 86400000;
 
@@ -65,13 +66,13 @@ export function daysSinceExpiry(endValue, nowMs = Date.now()) {
 }
 
 /**
- * Whole days left until an end date, rounded up the way the subscriptions
- * table shows it (ends later today → 1); 0 when past or missing.
+ * Days left until an end date, counted the way the subscriptions table shows
+ * it (the end date itself → 1); 0 when past or missing.
  */
 export function daysUntilExpiry(endValue, nowMs = Date.now()) {
   const end = toDate(endValue);
   if (!end) return 0;
-  return Math.max(0, Math.ceil((end.getTime() - nowMs) / MS_PER_DAY));
+  return daysLeftInTerm(end, nowMs);
 }
 
 /**

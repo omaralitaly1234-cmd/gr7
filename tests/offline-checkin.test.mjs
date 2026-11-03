@@ -30,6 +30,14 @@ test('pickActiveSub: cancelled and renewed terms never let anyone in', () => {
   assert.equal(pickActiveSub(subs, now), null);
 });
 
+test('a sub that ended earlier today still lets the member in until midnight', () => {
+  const subs = [{ id: 's', status: 'active', endDate: ts(now - 2 * 3600000) }];
+  assert.equal(pickActiveSub(subs, now).id, 's');
+  const e = toRosterEntry({ id: 'm' }, subs[0]);
+  assert.deepEqual(offlineVerdict(e, now, 0), { ok: true });
+  assert.equal(offlineVerdict(e, now + DAY, 0).reason, 'expired');
+});
+
 test('pickActiveSub judges at the time given, so a replay uses the visit time', () => {
   const subs = [{ id: 's', status: 'active', endDate: ts(now + DAY) }];
   assert.equal(pickActiveSub(subs, now + 2 * DAY), null);
